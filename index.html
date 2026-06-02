@@ -118,7 +118,10 @@ async function savePost(data, userId) {
     overlay_icons: data.overlayIcons || [],
     is_bodyweight: data.isBodyweight || false,
   });
-  if (error) throw error;
+  if (error) {
+    console.error("savePost error:", JSON.stringify(error));
+    throw new Error(`DB保存エラー: ${error.message} (code: ${error.code})`);
+  }
 }
 
 async function fetchMyPosts(userId) {
@@ -371,7 +374,7 @@ function IconPlacer({previewUrl, onDone, onBack}){
         onTouchEnd={handleTouchEnd}
       >
         {previewUrl
-          ? <video ref={videoRef} src={previewUrl} style={{width:"100%",height:"100%",objectFit:"contain",pointerEvents:"none",display:"block"}} autoPlay loop muted playsInline/>
+          ? <video ref={videoRef} src={previewUrl} style={{width:"100%",height:"100%",objectFit:"cover",pointerEvents:"none",display:"block"}} autoPlay loop muted playsInline onLoadedMetadata={e=>{e.target.currentTime=0.1;}}/>
           : <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",opacity:0.15,fontSize:80}}>🎬</div>
         }
         {/* Icons positioned using % of the actual video rendered area */}
@@ -395,35 +398,17 @@ function IconPlacer({previewUrl, onDone, onBack}){
   );
 }
 
-// Renders icons at correct position accounting for objectFit:contain letterboxing
 function IconOverlay({icons, onRemove, areaRef, videoRef}){
-  const [videoRect, setVideoRect] = useState(null);
+  const [ready, setReady] = useState(false);
 
   useEffect(()=>{
-    const calc = () => {
-      const container = areaRef?.current;
-      const video = videoRef?.current;
-      if(!container) return;
-      const cr = container.getBoundingClientRect();
-      if(!video || !video.videoWidth){
-        setVideoRect({left:0,top:0,width:cr.width,height:cr.height});
-        return;
-      }
-      const vw=video.videoWidth, vh=video.videoHeight;
-      const cw=cr.width, ch=cr.height;
-      const scale=Math.min(cw/vw, ch/vh);
-      setVideoRect({
-        left:(cw-vw*scale)/2, top:(ch-vh*scale)/2,
-        width:vw*scale, height:vh*scale,
-      });
-    };
-    calc();
-    const interval = setInterval(calc, 500);
-    return ()=>clearInterval(interval);
+    const t = setTimeout(()=>setReady(true), 100);
+    return ()=>clearTimeout(t);
   },[]);
 
-  if(!videoRect||!icons.length) return null;
+  if(!ready||!icons.length) return null;
 
+  // objectFit:cover means video fills entire container — % coords map directly
   return(
     <>
       {icons.map(ic=>(
@@ -431,8 +416,8 @@ function IconOverlay({icons, onRemove, areaRef, videoRef}){
           key={ic.id}
           style={{
             position:"absolute",
-            left: videoRect.left + ic.x/100*videoRect.width,
-            top:  videoRect.top  + ic.y/100*videoRect.height,
+            left:`${ic.x}%`,
+            top:`${ic.y}%`,
             fontSize:ic.size,
             transform:"translate(-50%,-50%)",
             filter:"drop-shadow(0 2px 6px rgba(0,0,0,0.5))",
@@ -907,7 +892,7 @@ function ProfileScreen({profile,myPosts,onEditOpen,onPostTap,onLogout}){
 }
 
 /* ── Post Modal ── */
-function PostModal({onClose,onPost,profile,exercises,onAddExercise}){
+function PostModal({onClose,onPost,profile,exercises,onAddExercise,authUserRef}){
   const [step,setStep]=useState(0); // 0=pick+mosaic, 1=exercise, 2=stats, 3=confirm
   const [videoFile,setVideoFile]=useState(null);
   const [previewUrl,setPreviewUrl]=useState(null);
@@ -937,6 +922,11 @@ function PostModal({onClose,onPost,profile,exercises,onAddExercise}){
   const handleFileChange=(e)=>{
     const f=e.target.files[0];
     if(!f) return;
+    // 200MB limit check
+    if(f.size > 200*1024*1024){
+      setUploadErr("動画が大きすぎます（200MB以上）。短く撮り直すか、圧縮してください。");
+      return;
+    }
     setVideoFile(f);
     setPreviewUrl(URL.createObjectURL(f));
     setUploadErr("");
@@ -956,11 +946,12 @@ function PostModal({onClose,onPost,profile,exercises,onAddExercise}){
     setUploadErr("");
     try{
       const videoUrl=await uploadVideo(videoFile);
+      await savePost({exercise:chosenEx||"未入力",weight:isBodyweight?0:weight,reps,sets,bodyWeight:bw,comment,avatar:profile.avatar||"🐨",tab:selTab,overlayIcons,videoUrl,isBodyweight},authUserRef.current?.id);
       onPost({exercise:chosenEx||"未入力",weight:isBodyweight?0:weight,reps,sets,bodyWeight:bw,comment,avatar:profile.avatar||"🐨",tab:selTab,overlayIcons,videoUrl,isBodyweight});
       onClose();
     }catch(e){
-      console.error(e);
-      setUploadErr(`エラー: ${e.message||"アップロードに失敗しました"}。Safariで再試行してください。`);
+      console.error("post error:",e);
+      setUploadErr(`❌ ${e.message||"投稿に失敗しました"}`);
       setUploading(false);
     }
   };
@@ -1197,6 +1188,8 @@ function App(){
   const containerRef=useRef(null);
   const startY=useRef(null);
   const locked=useRef(false);
+  const authUserRef=useRef(null);
+  useEffect(()=>{authUserRef.current=authUser;},[authUser]);
 
   useEffect(()=>{
     supabase.auth.getSession().then(({data:{session}})=>{setAuthUser(session?.user||null);setAuthLoading(false);});
@@ -1342,7 +1335,7 @@ function App(){
 
       {commentPost&&<CommentsSheet post={commentPost} onClose={()=>setCommentPost(null)} onAdd={t=>addComment(commentPost.id,t)} profile={profile}/>}
       {detailPost&&<PostDetail post={detailPost} onClose={()=>setDetailPost(null)} profile={profile} onComment={addComment}/>}
-      {showModal&&<PostModal onClose={()=>setShowModal(false)} onPost={addPost} profile={profile} exercises={exercises} onAddExercise={addExercise}/>}
+      {showModal&&<PostModal onClose={()=>setShowModal(false)} onPost={addPost} profile={profile} exercises={exercises} onAddExercise={addExercise} authUserRef={authUserRef}/>}
     </div>
   );
 }
