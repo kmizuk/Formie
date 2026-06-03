@@ -149,6 +149,17 @@ async function fetchMyPosts(userId) {
     .not("video_url", "is", null)
     .order("created_at", { ascending: false });
   if (error) return [];
+
+  const ids = data.map(p => p.id);
+  let likesMap = {};
+  if (ids.length > 0) {
+    const { data: likesData } = await supabase
+      .from("likes").select("post_id").in("post_id", ids);
+    (likesData || []).forEach(l => {
+      likesMap[l.post_id] = (likesMap[l.post_id] || 0) + 1;
+    });
+  }
+
   return data.map(p => ({
     id: p.id, tab: p.tab, exercise: p.exercise,
     user: p.profiles?.name || "ゲスト",
@@ -156,7 +167,8 @@ async function fetchMyPosts(userId) {
     weight: p.weight, reps: p.reps, sets: p.sets,
     bodyWeight: p.body_weight, comment: p.comment,
     videoUrl: p.video_url, overlayIcons: p.overlay_icons || [],
-    likes: p.likes || 0, time: timeAgo(p.created_at), comments: [],
+    likes: likesMap[p.id] || 0,
+    time: timeAgo(p.created_at), comments: [],
     user_id: p.user_id, isBodyweight: p.is_bodyweight || false,
   }));
 }
@@ -549,9 +561,19 @@ function PostDetail({post,onClose,profile,onComment,onDelete,authUser}){
 
   useEffect(()=>{
     supabase.from("comments").select("*",{count:"exact",head:true}).eq("post_id",post.id).then(({count})=>{ if(count!=null) setCommentCount(count); });
+    if(authUser) fetchMyLike(post.id, authUser.id).then(setLiked);
   },[post.id]);
 
-  const handleLike=()=>{setLiked(l=>!l);setLikeCount(c=>liked?c-1:c+1);setPop(true);setTimeout(()=>setPop(false),300);};
+  const handleLike=async()=>{
+    if(!authUser) return;
+    const next=!liked;
+    setLiked(next);
+    setLikeCount(c=>next?c+1:c-1);
+    setPop(true);setTimeout(()=>setPop(false),300);
+    await toggleLike(post.id, authUser.id, liked);
+    const {count} = await supabase.from("likes").select("*",{count:"exact",head:true}).eq("post_id",post.id);
+    if(count!=null) setLikeCount(count);
+  };
   const handleShare=()=>{
     if(navigator.clipboard) navigator.clipboard.writeText("https://formie-alpha.vercel.app").then(()=>{setCopied(true);setTimeout(()=>setCopied(false),2000);});
   };
@@ -824,7 +846,9 @@ function VideoSlide({post,isFirst,onCommentOpen,authUser,onDelete}){
     setLiked(next);
     setLikeCount(c=>next?c+1:c-1);
     setPop(true);setTimeout(()=>setPop(false),300);
-    await toggleLike(post.id, authUser.id, !next);
+    await toggleLike(post.id, authUser.id, liked);
+    const {count} = await supabase.from("likes").select("*",{count:"exact",head:true}).eq("post_id",post.id);
+    if(count!=null) setLikeCount(count);
   };
   const handleFollow=async()=>{
     if(!authUser||isOwn||followLoading) return;
@@ -857,7 +881,7 @@ function VideoSlide({post,isFirst,onCommentOpen,authUser,onDelete}){
         setLiked(true);
         setLikeCount(c=>c+1);
         setPop(true);setTimeout(()=>setPop(false),300);
-        toggleLike(post.id,authUser?.id,false);
+        toggleLike(post.id, authUser?.id, liked);
       }
     }
     lastTap.current=now;
