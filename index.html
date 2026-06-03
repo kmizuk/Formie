@@ -22,6 +22,7 @@
     @keyframes fadeIn  { from { opacity:0; } to { opacity:1; } }
     @keyframes sheetUp { from { transform:translateY(100%); } to { transform:translateY(0); } }
     @keyframes zoomIn  { from { transform:scale(0.96);opacity:0; } to { transform:scale(1);opacity:1; } }
+    @keyframes fadeOut { from { opacity:1; transform:translate(-50%,-50%) scale(1); } to { opacity:0; transform:translate(-50%,-50%) scale(1.4); } }
     .mosaic-block { position:absolute; cursor:crosshair; }
   </style>
 </head>
@@ -541,9 +542,14 @@ function PostDetail({post,onClose,profile,onComment,onDelete,authUser}){
   const [copied,setCopied]=useState(false);
   const [showComments,setShowComments]=useState(false);
   const [confirmDelete,setConfirmDelete]=useState(false);
+  const [commentCount,setCommentCount]=useState(post.comments?.length||0);
   const ratio=getRatio(post.weight,post.bodyWeight,post.tab);
   const rm=calc1RM(post.weight,post.reps);
   const isOwner = authUser?.id === post.user_id;
+
+  useEffect(()=>{
+    supabase.from("comments").select("*",{count:"exact",head:true}).eq("post_id",post.id).then(({count})=>{ if(count!=null) setCommentCount(count); });
+  },[post.id]);
 
   const handleLike=()=>{setLiked(l=>!l);setLikeCount(c=>liked?c-1:c+1);setPop(true);setTimeout(()=>setPop(false),300);};
   const handleShare=()=>{
@@ -602,7 +608,7 @@ function PostDetail({post,onClose,profile,onComment,onDelete,authUser}){
         </button>
         <button onClick={()=>setShowComments(true)} style={{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:2,padding:0}}>
           <svg width={34} height={34} viewBox="0 0 24 24" fill="white" strokeWidth="0"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-          <span style={{color:"#fff",fontSize:12,fontWeight:800,textShadow:"0 1px 4px rgba(0,0,0,0.8)"}}>{post.comments.length}</span>
+          <span style={{color:"#fff",fontSize:12,fontWeight:800,textShadow:"0 1px 4px rgba(0,0,0,0.8)"}}>{commentCount}</span>
         </button>
         <button onClick={handleShare} style={{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:2,padding:0}}>
           <svg width={32} height={32} viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -648,7 +654,7 @@ function PostDetail({post,onClose,profile,onComment,onDelete,authUser}){
       )}
 
       {/* comments sheet */}
-      {showComments&&<CommentsSheet post={post} onClose={()=>setShowComments(false)} onAdd={t=>onComment(post.id,t)} profile={profile}/>}
+      {showComments&&<CommentsSheet post={post} onClose={()=>setShowComments(false)} onAdd={t=>{onComment(post.id,t);setCommentCount(c=>c+1);}} profile={profile} authUser={authUser}/>}
     </div>
   );
 }
@@ -766,7 +772,7 @@ function CommentsSheet({post,onClose,onAdd,profile,authUser}){
       <div style={{position:"absolute",bottom:0,left:0,right:0,background:"#fff",borderRadius:"22px 22px 0 0",maxHeight:"78vh",display:"flex",flexDirection:"column",animation:"sheetUp 0.3s ease"}} onClick={e=>e.stopPropagation()}>
         <div style={{display:"flex",justifyContent:"center",padding:"10px 0 0"}}><div style={{width:36,height:4,borderRadius:2,background:"#e0e0e0"}}/></div>
         <div style={{padding:"10px 16px 12px",display:"flex",alignItems:"center",justifyContent:"space-between",borderBottom:"1.5px solid #f2f2f2"}}>
-          <div style={{fontWeight:800,fontSize:15}}>コメント {comments.length}件</div>
+          <div style={{fontWeight:800,fontSize:15}}>コメント {comments.reduce((s,c)=>s+1+(c.replies?.length||0),0)}件</div>
           <button onClick={onClose} style={{width:30,height:30,borderRadius:"50%",background:"#f2f2f2",border:"none",fontSize:16,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:"#666"}}>✕</button>
         </div>
         <div style={{flex:1,overflowY:"auto",padding:"14px 16px"}}>
@@ -802,10 +808,14 @@ function VideoSlide({post,isFirst,onCommentOpen,authUser,onDelete}){
   const ratio=getRatio(post.weight,post.bodyWeight,post.tab);
   const rm=calc1RM(post.weight,post.reps);
 
+  const [commentCount,setCommentCount]=useState(post.comments?.length||0);
+
   useEffect(()=>{
     if(!authUser) return;
     fetchMyLike(post.id, authUser.id).then(setLiked);
     if(!isOwn) fetchIsFollowing(authUser.id, post.user_id).then(setFollowing);
+    // DBからコメント数を取得
+    supabase.from("comments").select("*",{count:"exact",head:true}).eq("post_id",post.id).then(({count})=>{ if(count!=null) setCommentCount(count); });
   },[post.id, authUser?.id]);
 
   const handleLike=async()=>{
@@ -831,18 +841,45 @@ function VideoSlide({post,isFirst,onCommentOpen,authUser,onDelete}){
     }
   };
 
+  // ダブルタップいいね
+  const lastTap=useRef(0);
+  const [heartPos,setHeartPos]=useState(null);
+  const handleDoubleTap=(e)=>{
+    const now=Date.now();
+    if(now-lastTap.current<300){
+      // ダブルタップ
+      const rect=e.currentTarget.getBoundingClientRect();
+      const x=e.clientX-rect.left;
+      const y=e.clientY-rect.top;
+      setHeartPos({x,y});
+      setTimeout(()=>setHeartPos(null),800);
+      if(!liked){
+        setLiked(true);
+        setLikeCount(c=>c+1);
+        setPop(true);setTimeout(()=>setPop(false),300);
+        toggleLike(post.id,authUser?.id,false);
+      }
+    }
+    lastTap.current=now;
+  };
+
   return(
-    <div style={{width:"100%",height:"100%",position:"relative",background:"#111",flexShrink:0,overflow:"hidden"}}>
+    <div style={{width:"100%",height:"100%",position:"relative",background:"#111",flexShrink:0,overflow:"hidden"}} onClick={handleDoubleTap}>
       {/* video */}
       {post.videoUrl
         ? <video src={post.videoUrl}
-            style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover",opacity:0,transition:"opacity 0.3s"}}
-            loop muted={muted} playsInline autoPlay
+            style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover",opacity:0,transition:"opacity 0.2s"}}
+            loop muted={muted} playsInline autoPlay preload="auto"
             onCanPlay={e=>e.target.style.opacity=1}
             onError={e=>{const s=e.target.closest('[data-slide]');if(s)s.style.display='none';}}
           />
         : <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center"}}><div style={{opacity:0.1,fontSize:88,color:"#fff"}}>🎬</div></div>
       }
+
+      {/* ダブルタップハートアニメーション */}
+      {heartPos&&(
+        <div style={{position:"absolute",left:heartPos.x,top:heartPos.y,transform:"translate(-50%,-50%)",fontSize:72,zIndex:50,pointerEvents:"none",animation:"zoomIn 0.15s ease,fadeOut 0.6s ease 0.2s forwards"}}>❤️</div>
+      )}
 
       {/* gradient */}
       <div style={{position:"absolute",bottom:0,left:0,right:0,height:"52%",background:"linear-gradient(to top,rgba(0,0,0,0.82) 0%,rgba(0,0,0,0.35) 55%,transparent 100%)",pointerEvents:"none"}}/>
@@ -854,10 +891,10 @@ function VideoSlide({post,isFirst,onCommentOpen,authUser,onDelete}){
 
       {/* top */}
       <div style={{position:"absolute",top:16,left:16,background:"rgba(0,0,0,0.5)",backdropFilter:"blur(4px)",color:"#fff",borderRadius:20,padding:"5px 14px",fontSize:12,fontWeight:800,zIndex:2}}>{post.tab}</div>
-      <button onClick={()=>setMuted(m=>!m)} style={{position:"absolute",top:14,right:14,width:34,height:34,borderRadius:"50%",background:"rgba(0,0,0,0.5)",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",zIndex:2,fontSize:15}}>{muted?"🔇":"🔊"}</button>
+      <button onClick={e=>{e.stopPropagation();setMuted(m=>!m);}} style={{position:"absolute",top:14,right:14,width:34,height:34,borderRadius:"50%",background:"rgba(0,0,0,0.5)",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",zIndex:2,fontSize:15}}>{muted?"🔇":"🔊"}</button>
 
       {/* RIGHT: actions — aligned to bottom */}
-      <div style={{position:"absolute",bottom:90,right:12,display:"flex",flexDirection:"column",alignItems:"center",gap:22,zIndex:3}}>
+      <div onClick={e=>e.stopPropagation()} style={{position:"absolute",bottom:90,right:12,display:"flex",flexDirection:"column",alignItems:"center",gap:22,zIndex:3}}>
         {/* アバター */}
         <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
           <div style={{width:46,height:46,borderRadius:"50%",background:"rgba(255,255,255,0.15)",backdropFilter:"blur(4px)",border:"2.5px solid rgba(255,255,255,0.7)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:26}}>
@@ -873,11 +910,11 @@ function VideoSlide({post,isFirst,onCommentOpen,authUser,onDelete}){
           <div style={{transition:"transform 0.15s",transform:pop?"scale(1.4)":"scale(1)"}}>{Ic.heart(liked,34)}</div>
           <span style={{color:"#fff",fontSize:12,fontWeight:800,textShadow:"0 1px 4px rgba(0,0,0,0.8)"}}>{likeCount}</span>
         </button>
-        <button onClick={onCommentOpen} style={{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:2,padding:0}}>
+        <button onClick={e=>{e.stopPropagation();onCommentOpen(()=>setCommentCount(c=>c+1));}} style={{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:2,padding:0}}>
           <svg width={34} height={34} viewBox="0 0 24 24" fill="white" strokeWidth="0">
             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
           </svg>
-          <span style={{color:"#fff",fontSize:12,fontWeight:800,textShadow:"0 1px 4px rgba(0,0,0,0.8)"}}>{post.comments?.length||0}</span>
+          <span style={{color:"#fff",fontSize:12,fontWeight:800,textShadow:"0 1px 4px rgba(0,0,0,0.8)"}}>{commentCount}</span>
         </button>
         <button onClick={handleShare} style={{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:2,padding:0}}>
           <svg width={32} height={32} viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -1393,7 +1430,23 @@ function App(){
   const [commentPost,setCommentPost]=useState(null);
   const [detailPost,setDetailPost]=useState(null);
   const [profile,setProfile]=useState({name:"",weight:70,height:170,avatar:"🐨"});
-  const [exercises,setExercises]=useState({...DEFAULT_EXERCISES});
+  const [exercises,setExercises]=useState(()=>{
+    try{
+      const saved=localStorage.getItem("formie_exercises");
+      if(saved){
+        const parsed=JSON.parse(saved);
+        const merged={};
+        Object.keys(DEFAULT_EXERCISES).forEach(tab=>{
+          const def=DEFAULT_EXERCISES[tab];
+          const cust=parsed[tab]||[];
+          const extras=cust.filter(e=>!def.includes(e));
+          merged[tab]=[...def,...extras];
+        });
+        return merged;
+      }
+    }catch(e){}
+    return {...DEFAULT_EXERCISES};
+  });
   const containerRef=useRef(null);
   const startY=useRef(null);
   const locked=useRef(false);
@@ -1459,6 +1512,7 @@ function App(){
   const addComment=(postId,text)=>{
     const c={user:profile.name||"あなた",avatar:profile.avatar||"🐨",text,time:"今",replies:[]};
     setPosts(prev=>prev.map(p=>p.id===postId?{...p,comments:[...p.comments,c]}:p));
+    setMyPosts(prev=>prev.map(p=>p.id===postId?{...p,comments:[...p.comments,c]}:p));
     setCommentPost(prev=>prev?{...prev,comments:[...prev.comments,c]}:null);
   };
   const addPost=async(data)=>{
@@ -1472,7 +1526,11 @@ function App(){
     setProfile(p);
     if(authUser) await upsertProfile(authUser.id,p);
   };
-  const addExercise=(tab,name)=>setExercises(prev=>({...prev,[tab]:[...(prev[tab]||[]),name]}));
+  const addExercise=(tab,name)=>setExercises(prev=>{
+    const next={...prev,[tab]:[...(prev[tab]||[]),name]};
+    try{localStorage.setItem("formie_exercises",JSON.stringify(next));}catch(e){}
+    return next;
+  });
 
   const deletePost=(postId)=>{
     setPosts(prev=>prev.filter(p=>p.id!==postId));
@@ -1513,7 +1571,7 @@ function App(){
               <div style={{height:"100%",transition:animated?"transform 0.4s cubic-bezier(0.25,0.46,0.45,0.94)":"none",transform:`translateY(-${currentIndex*100}%)`}}>
                 {posts.map((post,i)=>(
                   <div key={post.id} data-slide="1" style={{height:"100%",width:"100%"}}>
-                    <VideoSlide post={post} isFirst={i===0&&currentIndex===0} onCommentOpen={()=>setCommentPost(post)} authUser={authUser} onDelete={deletePost}/>
+                    <VideoSlide post={post} isFirst={i===0&&currentIndex===0} onCommentOpen={(onAdd)=>setCommentPost({post,onAdd})} authUser={authUser} onDelete={deletePost}/>
                   </div>
                 ))}
               </div>
@@ -1553,7 +1611,7 @@ function App(){
         </button>
       </div>
 
-      {commentPost&&<CommentsSheet post={commentPost} onClose={()=>setCommentPost(null)} onAdd={t=>addComment(commentPost.id,t)} profile={profile} authUser={authUser}/>}
+      {commentPost&&<CommentsSheet post={commentPost.post} onClose={()=>setCommentPost(null)} onAdd={t=>{addComment(commentPost.post.id,t);commentPost.onAdd&&commentPost.onAdd();}} profile={profile} authUser={authUser}/>}
       {detailPost&&<PostDetail post={detailPost} onClose={()=>setDetailPost(null)} profile={profile} onComment={addComment} onDelete={deletePost} authUser={authUser}/>}
       {showModal&&<PostModal onClose={()=>setShowModal(false)} onPost={addPost} profile={profile} exercises={exercises} onAddExercise={addExercise} authUserRef={authUserRef}/>}
     </div>
