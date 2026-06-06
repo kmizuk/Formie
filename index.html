@@ -1,0 +1,1664 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Formie" />
+  <meta name="theme-color" content="#111111" />
+  <title>Formie</title>
+  <link rel="manifest" href="/manifest.json" />
+  <link rel="apple-touch-icon" href="/icon-192.png" />
+  <script>
+    if('serviceWorker' in navigator){
+      window.addEventListener('load', ()=>{
+        navigator.serviceWorker.register('/sw.js').catch(()=>{});
+      });
+    }
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=DM+Mono:wght@500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; background: #e8e8e8; }
+    body { font-family: 'Nunito','Hiragino Maru Gothic Pro',sans-serif; -webkit-tap-highlight-color: transparent; overscroll-behavior: none; overflow: hidden; color: #111; display: flex; justify-content: center; align-items: stretch; }
+    #root { width: 100%; max-width: 430px; height: 100%; background: #fff; position: relative; box-shadow: 0 0 40px rgba(0,0,0,0.18); overflow: hidden; }
+    input, textarea, button, select { font-family: inherit; }
+    textarea { resize: none; }
+    ::-webkit-scrollbar { display: none; }
+    @keyframes slideUp { from { transform:translateY(24px);opacity:0; } to { transform:translateY(0);opacity:1; } }
+    @keyframes fadeIn  { from { opacity:0; } to { opacity:1; } }
+    @keyframes sheetUp { from { transform:translateY(100%); } to { transform:translateY(0); } }
+    @keyframes zoomIn  { from { transform:scale(0.96);opacity:0; } to { transform:scale(1);opacity:1; } }
+    @keyframes fadeOut { from { opacity:1; transform:translate(-50%,-50%) scale(1); } to { opacity:0; transform:translate(-50%,-50%) scale(1.4); } }
+    .mosaic-block { position:absolute; cursor:crosshair; }
+  </style>
+</head>
+<body>
+<div id="root" style="height:100%"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<script>Babel.disableScriptTags = false; window.BABEL_OPTS = { presets: ['react'] };</script>
+<script>
+// suppress in-browser Babel warning
+const _warn = console.warn.bind(console);
+console.warn = (...args) => {
+  if(typeof args[0]==='string' && args[0].includes('in-browser Babel')) return;
+  _warn(...args);
+};
+</script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script type="text/babel">
+const { useState, useRef, useEffect, useCallback } = React;
+
+// ── Supabase ──
+const SUPABASE_URL = "https://fwjegghikenfryaxgvst.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ3amVnZ2hpa2VuZnJ5YXhndnN0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAzMDk5MDgsImV4cCI6MjA5NTg4NTkwOH0.tlrFYFOC8G_XopwMxoG80000zNNx1g3rnt2C3TfL9r8";
+const BUCKET = "Formie";
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+async function uploadVideo(file) {
+  const name = file.name || "video.mp4";
+  const ext = name.includes(".") ? name.split(".").pop() : "mp4";
+  const path = `videos/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+  const contentType = file.type || "video/mp4";
+
+  // Get current session token
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error("ログインが必要です");
+
+  const { data, error } = await supabase.storage
+    .from(BUCKET)
+    .upload(path, file, {
+      contentType,
+      upsert: false,
+      cacheControl: "3600",
+    });
+
+  if (error) {
+    console.error("Upload error detail:", JSON.stringify(error));
+    throw new Error(error.message || "アップロードに失敗しました");
+  }
+
+  const { data: urlData } = supabase.storage.from(BUCKET).getPublicUrl(path);
+  return urlData.publicUrl;
+}
+
+// ── DB helpers ──
+async function fetchPosts(tab) {
+  const { data, error } = await supabase
+    .from("posts")
+    .select("*, profiles(name, avatar)")
+    .eq("tab", tab)
+    .not("video_url", "is", null)
+    .order("created_at", { ascending: false });
+  if (error) return [];
+
+  // likesは別途まとめて取得
+  const ids = data.map(p => p.id);
+  let likesMap = {};
+  if (ids.length > 0) {
+    const { data: likesData } = await supabase
+      .from("likes")
+      .select("post_id")
+      .in("post_id", ids);
+    (likesData || []).forEach(l => {
+      likesMap[l.post_id] = (likesMap[l.post_id] || 0) + 1;
+    });
+  }
+
+  return data.map(p => ({
+    id: p.id,
+    tab: p.tab,
+    user: p.profiles?.name || "ゲスト",
+    avatar: p.profiles?.avatar || "🐨",
+    exercise: p.exercise,
+    weight: p.weight,
+    reps: p.reps,
+    sets: p.sets,
+    bodyWeight: p.body_weight,
+    comment: p.comment,
+    videoUrl: p.video_url,
+    overlayIcons: p.overlay_icons || [],
+    likes: likesMap[p.id] || 0,
+    time: timeAgo(p.created_at),
+    comments: [],
+    user_id: p.user_id,
+    isBodyweight: p.is_bodyweight || false,
+  }));
+}
+
+async function savePost(data, userId) {
+  const { error } = await supabase.from("posts").insert({
+    user_id: userId,
+    tab: data.tab,
+    exercise: data.exercise,
+    weight: data.weight,
+    reps: data.reps,
+    sets: data.sets,
+    body_weight: data.bodyWeight,
+    comment: data.comment,
+    video_url: data.videoUrl,
+    overlay_icons: data.overlayIcons || [],
+    is_bodyweight: data.isBodyweight || false,
+  });
+  if (error) {
+    console.error("savePost error:", JSON.stringify(error));
+    throw new Error(`DB保存エラー: ${error.message} (code: ${error.code})`);
+  }
+}
+
+async function fetchMyPosts(userId) {
+  const { data, error } = await supabase
+    .from("posts")
+    .select("*, profiles(name, avatar)")
+    .eq("user_id", userId)
+    .not("video_url", "is", null)
+    .order("created_at", { ascending: false });
+  if (error) return [];
+
+  const ids = data.map(p => p.id);
+  let likesMap = {};
+  if (ids.length > 0) {
+    const { data: likesData } = await supabase
+      .from("likes").select("post_id").in("post_id", ids);
+    (likesData || []).forEach(l => {
+      likesMap[l.post_id] = (likesMap[l.post_id] || 0) + 1;
+    });
+  }
+
+  return data.map(p => ({
+    id: p.id, tab: p.tab, exercise: p.exercise,
+    user: p.profiles?.name || "ゲスト",
+    avatar: p.profiles?.avatar || "🐨",
+    weight: p.weight, reps: p.reps, sets: p.sets,
+    bodyWeight: p.body_weight, comment: p.comment,
+    videoUrl: p.video_url, overlayIcons: p.overlay_icons || [],
+    likes: likesMap[p.id] || 0,
+    time: timeAgo(p.created_at), comments: [],
+    user_id: p.user_id, isBodyweight: p.is_bodyweight || false,
+  }));
+}
+
+// ── Likes ──
+async function fetchMyLike(postId, userId) {
+  const { data } = await supabase.from("likes").select("id").eq("post_id", postId).eq("user_id", userId).maybeSingle();
+  return !!data;
+}
+async function toggleLike(postId, userId, currentlyLiked) {
+  if (currentlyLiked) {
+    await supabase.from("likes").delete().eq("post_id", postId).eq("user_id", userId);
+  } else {
+    await supabase.from("likes").insert({ post_id: postId, user_id: userId });
+  }
+}
+
+// ── Comments DB ──
+async function fetchCommentsDB(postId) {
+  const { data, error } = await supabase
+    .from("comments")
+    .select("*, profiles(name, avatar)")
+    .eq("post_id", postId)
+    .is("parent_id", null)
+    .order("created_at", { ascending: true });
+  if (error || !data) return [];
+  const { data: replies } = await supabase
+    .from("comments")
+    .select("*, profiles(name, avatar)")
+    .eq("post_id", postId)
+    .not("parent_id", "is", null)
+    .order("created_at", { ascending: true });
+  return data.map(c => ({
+    id: c.id,
+    user: c.profiles?.name || "ゲスト",
+    avatar: c.profiles?.avatar || "🐨",
+    text: c.text,
+    time: timeAgo(c.created_at),
+    replies: (replies || []).filter(r => r.parent_id === c.id).map(r => ({
+      id: r.id,
+      user: r.profiles?.name || "ゲスト",
+      avatar: r.profiles?.avatar || "🐨",
+      text: r.text,
+      time: timeAgo(r.created_at),
+    })),
+  }));
+}
+async function saveCommentDB(postId, userId, text, parentId = null) {
+  const { data, error } = await supabase.from("comments")
+    .insert({ post_id: postId, user_id: userId, text, parent_id: parentId })
+    .select("*, profiles(name, avatar)").single();
+  if (error) throw error;
+  return {
+    id: data.id,
+    user: data.profiles?.name || "ゲスト",
+    avatar: data.profiles?.avatar || "🐨",
+    text: data.text,
+    time: "今",
+    replies: [],
+  };
+}
+
+// ── Follows ──
+async function fetchIsFollowing(followerId, followingId) {
+  const { data } = await supabase.from("follows").select("follower_id").eq("follower_id", followerId).eq("following_id", followingId).maybeSingle();
+  return !!data;
+}
+async function toggleFollow(followerId, followingId, currentlyFollowing) {
+  if (currentlyFollowing) {
+    await supabase.from("follows").delete().eq("follower_id", followerId).eq("following_id", followingId);
+  } else {
+    await supabase.from("follows").insert({ follower_id: followerId, following_id: followingId });
+  }
+}
+async function fetchFollowCounts(userId) {
+  const [{ count: following }, { count: followers }] = await Promise.all([
+    supabase.from("follows").select("*", { count: "exact", head: true }).eq("follower_id", userId),
+    supabase.from("follows").select("*", { count: "exact", head: true }).eq("following_id", userId),
+  ]);
+  return { following: following || 0, followers: followers || 0 };
+}
+
+async function upsertProfile(userId, profile) {
+  await supabase.from("profiles").upsert({
+    id: userId,
+    name: profile.name,
+    avatar: profile.avatar,
+    weight: profile.weight,
+    height: profile.height,
+  });
+}
+
+async function fetchProfile(userId) {
+  const { data } = await supabase.from("profiles").select("*").eq("id", userId).single();
+  return data;
+}
+
+function timeAgo(ts) {
+  if (!ts) return "";
+  const diff = Math.floor((Date.now() - new Date(ts)) / 1000);
+  if (diff < 60) return "今";
+  if (diff < 3600) return `${Math.floor(diff/60)}分前`;
+  if (diff < 86400) return `${Math.floor(diff/3600)}時間前`;
+  return `${Math.floor(diff/86400)}日前`;
+}
+
+const TABS = ["肩","胸","背中","腕","脚"];
+const ANIMAL_ICONS = ["🐨","🐯","🦁","🐻","🐼","🦊","🐺","🐸"];
+const DEFAULT_EXERCISES = {
+  "胸":  ["ベンチプレス","インクラインプレス","ダンベルフライ","ディップス","ケーブルクロス"],
+  "背中":["デッドリフト","懸垂","ラットプルダウン","ベントオーバーロウ","シーテッドロウ"],
+  "肩":  ["オーバーヘッドプレス","サイドレイズ","フロントレイズ","アーノルドプレス","フェイスプル"],
+  "腕":  ["バーベルカール","ハンマーカール","トライセプスプレスダウン","スカルクラッシャー","プリーチャーカール"],
+  "脚":  ["スクワット","レッグプレス","ルーマニアンデッドリフト","レッグカール","カーフレイズ"],
+};
+const ALL_POSTS = [
+  { id:1, tab:"胸",  user:"たける", avatar:"🐯", exercise:"ベンチプレス",  weight:80,  reps:5,  sets:3, bodyWeight:75, comment:"肘の角度が気になってます。フォームどうですか？", time:"12分前", likes:4, comments:[{user:"さとし",avatar:"🦁",text:"肘が少し開きすぎかも。75度くらいに絞ると胸に入りやすいです",time:"8分前",replies:[]},{user:"まさき",avatar:"🐼",text:"体重比1.07倍はかなり強いですね。少し重量落として練習を",time:"3分前",replies:[]}]},
+  { id:2, tab:"背中", user:"りく",   avatar:"🐨", exercise:"デッドリフト", weight:100, reps:3,  sets:4, bodyWeight:70, comment:"腰が丸まってる気がします…", time:"34分前", likes:7, comments:[{user:"けんた",avatar:"🐻",text:"体重比1.43倍だと腰の丸まりは出やすいです。120kgに落として練習を",time:"20分前",replies:[]}]},
+  { id:3, tab:"脚",  user:"ゆうき", avatar:"🐸", exercise:"スクワット",    weight:60,  reps:8,  sets:3, bodyWeight:65, comment:"膝が内側に入ってしまいます", time:"1時間前", likes:2, comments:[] },
+  { id:4, tab:"肩",  user:"ひろ",   avatar:"🦊", exercise:"サイドレイズ", weight:12,  reps:12, sets:4, bodyWeight:68, comment:"肩が上がりすぎてますか？", time:"2時間前", likes:5, comments:[{user:"たける",avatar:"🐯",text:"僧帽筋が使われてる感じがします。肩甲骨を下げる意識を",time:"1時間前",replies:[]}]},
+  { id:5, tab:"腕",  user:"だいき", avatar:"🐺", exercise:"バーベルカール", weight:40, reps:10, sets:3, bodyWeight:72, comment:"反動使ってるかわからなくなってきた…", time:"3時間前", likes:3, comments:[] },
+];
+
+const calc1RM = (w,r) => { if(!w||!r) return null; if(r===1) return w; return Math.round(w*(1+r/30)); };
+
+// 部位ごとに体重比の基準を調整
+const TAB_THRESHOLDS = {
+  "胸":  [0.5, 0.8, 1.1, 1.4],  // ベンチ系：比較的重い
+  "背中": [0.6, 1.0, 1.4, 1.8], // デッド系：最も重い
+  "肩":  [0.2, 0.35, 0.5, 0.7], // サイドレイズ系：軽い
+  "腕":  [0.3, 0.5, 0.7, 0.9],  // カール系：中程度
+  "脚":  [0.7, 1.1, 1.5, 2.0],  // スクワット系：最重量
+};
+const LEVEL_META = [
+  { label:"初心者", bg:"#f0f4ff", border:"#c7d7fd", text:"#3b5bdb", val:"#2c4bb5" },
+  { label:"初級",   bg:"#f0fdf4", border:"#bbf7d0", text:"#16a34a", val:"#14532d" },
+  { label:"中級",   bg:"#fefce8", border:"#fde68a", text:"#ca8a04", val:"#92400e" },
+  { label:"上級",   bg:"#fff7ed", border:"#fed7aa", text:"#ea580c", val:"#7c2d12" },
+  { label:"エリート",bg:"#fdf2f8", border:"#f0abfc", text:"#a21caf", val:"#701a75" },
+];
+const getRatio = (w, bw, tab="胸") => {
+  if(!w||!bw) return null;
+  const r = parseFloat((w/bw).toFixed(2));
+  const thr = TAB_THRESHOLDS[tab] || TAB_THRESHOLDS["胸"];
+  const idx = thr.findIndex(t => r < t);
+  const lvl = LEVEL_META[idx === -1 ? 4 : idx];
+  return { ratio: r.toFixed(2), level: lvl.label, ...lvl };
+};
+
+const DEFAULT_WEIGHT = {"肩":20,"胸":80,"背中":30,"腕":20,"脚":60};
+const OVERLAY_ICONS = ["🐨","🐯","🦁","🐻","🐼","🦊","🐺","🐸","😎","🎭","🌸","⭐️"];
+
+
+/* ── Icons ── */
+const Ic = {
+  heart:(f,s=26)=><svg width={s} height={s} viewBox="0 0 24 24" fill={f?"#e11d48":"none"} stroke={f?"#e11d48":"#aaa"} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>,
+  comment:(s=26)=><svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="#aaa" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>,
+  plus:(s=28)=><svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>,
+  user:(a,s=24)=><svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={a?"#111":"#bbb"} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>,
+  home:(a,s=24)=><svg width={s} height={s} viewBox="0 0 24 24" fill={a?"#111":"none"} stroke={a?"#111":"#bbb"} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>,
+  edit:(s=18)=><svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="#888" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>,
+  chevDown:(s=16)=><svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="#888" strokeWidth="2" strokeLinecap="round"><polyline points="6 9 12 15 18 9"/></svg>,
+  check:(s=18)=><svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>,
+  back:(s=22)=><svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="#111" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>,
+  share:(s=26)=><svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="#aaa" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>,
+  play:(s=48)=><svg width={s} height={s} viewBox="0 0 24 24" fill="rgba(255,255,255,0.9)" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg>,
+  close:(s=22)=><svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>,
+  eraser:(s=20)=><svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 20H7L3 16l11-11 6 6-1.5 1.5"/><path d="M6.5 17.5l5-5"/></svg>,
+};
+
+/* ── Counter ── */
+function Counter({value,onChange,min=0,max=500,step=1,unit}){
+  return(
+    <div style={{display:"flex",alignItems:"center",gap:10}}>
+      <button onClick={()=>onChange(Math.max(min,+(value-step).toFixed(1)))} style={{width:36,height:36,borderRadius:"50%",border:"1.5px solid #e5e5e5",background:"#f7f7f7",fontSize:18,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,color:"#333"}}>−</button>
+      <span style={{minWidth:64,textAlign:"center",fontFamily:"'DM Mono',monospace",fontSize:16,fontWeight:700,color:"#111"}}>{value}<span style={{fontSize:10,color:"#999",marginLeft:2}}>{unit}</span></span>
+      <button onClick={()=>onChange(Math.min(max,+(value+step).toFixed(1)))} style={{width:36,height:36,borderRadius:"50%",border:"1.5px solid #e5e5e5",background:"#f7f7f7",fontSize:18,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,color:"#333"}}>+</button>
+    </div>
+  );
+}
+
+/* ── Icon Placer (replaces Mosaic) ── */
+function IconPlacer({previewUrl, onDone, onBack}){
+  const [icons, setIcons] = useState([]);
+  const [selIcon, setSelIcon] = useState(OVERLAY_ICONS[0]);
+  const [selSize, setSelSize] = useState(96);
+  const [selectedId, setSelectedId] = useState(null);
+  const areaRef = useRef(null);
+  const videoRef = useRef(null);
+  const isDragging = useRef(false); // ドラッグ中は新規配置をブロック
+
+  const getAreaRect = () => areaRef.current?.getBoundingClientRect();
+
+  const placeIcon = (clientX, clientY) => {
+    const r = getAreaRect();
+    if(!r) return;
+    const cx = Math.max(0, Math.min(100, (clientX - r.left) / r.width * 100));
+    const cy = Math.max(0, Math.min(100, (clientY - r.top) / r.height * 100));
+    setIcons(prev => [...prev, {id:Date.now(), icon:selIcon, x:cx, y:cy, size:selSize}]);
+  };
+
+  const handleAreaClick = (e) => {
+    if(isDragging.current) return;
+    placeIcon(e.clientX, e.clientY);
+  };
+
+  const handleTouchEnd = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if(isDragging.current) return;
+    const t = e.changedTouches[0];
+    placeIcon(t.clientX, t.clientY);
+  };
+
+  const moveIcon = (id, nx, ny) => {
+    isDragging.current = true;
+    setIcons(prev => prev.map(i => i.id===id ? {...i, x:nx, y:ny} : i));
+  };
+
+  const endDrag = () => {
+    setTimeout(()=>{ isDragging.current = false; }, 50);
+  };
+
+  const removeIcon = (e, id) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIcons(prev => prev.filter(i => i.id !== id));
+  };
+
+  return(
+    <div style={{position:"absolute",inset:0,background:"#000",zIndex:400,display:"flex",flexDirection:"column",animation:"fadeIn 0.2s ease"}}>
+      <div style={{padding:"14px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",borderBottom:"1px solid #222"}}>
+        <button onClick={onBack} style={{background:"none",border:"none",cursor:"pointer",padding:4}}>{Ic.back(22)}</button>
+        <div style={{color:"#fff",fontWeight:800,fontSize:15}}>顔隠しアイコン</div>
+        <button onClick={()=>onDone(icons)} style={{background:"#fff",color:"#111",border:"none",borderRadius:20,padding:"7px 18px",fontWeight:800,fontSize:13,cursor:"pointer"}}>完了</button>
+      </div>
+
+      <div style={{color:"#aaa",fontSize:12,fontWeight:600,textAlign:"center",padding:"6px 0"}}>
+        動画をタップ → アイコン設置　　アイコンをドラッグ → 移動　　タップ → 削除
+      </div>
+
+      {/* icon selector */}
+      <div style={{display:"flex",gap:8,padding:"8px 12px",overflowX:"auto",background:"#111",borderBottom:"1px solid #222",flexShrink:0,WebkitOverflowScrolling:"touch"}}>
+        {OVERLAY_ICONS.map(ic=>(
+          <button key={ic} onClick={()=>setSelIcon(ic)} style={{width:48,height:48,borderRadius:12,border:selIcon===ic?"2.5px solid #fff":"2px solid #333",background:selIcon===ic?"#444":"#222",fontSize:26,cursor:"pointer",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>{ic}</button>
+        ))}
+      </div>
+
+      {/* size selector for new icons */}
+      <div style={{display:"flex",alignItems:"center",gap:12,padding:"10px 16px",background:"#0d0d0d",borderBottom:"1px solid #222",flexShrink:0}}>
+        <span style={{color:"#666",fontSize:12,fontWeight:700,flexShrink:0}}>{selectedId?"選択中のサイズ":"新規サイズ"}</span>
+        <input type="range" min={24} max={96} value={
+          selectedId ? (icons.find(i=>i.id===selectedId)?.size||selSize) : selSize
+        } onChange={e=>{
+          const v=+e.target.value;
+          if(selectedId){
+            setIcons(prev=>prev.map(i=>i.id===selectedId?{...i,size:v}:i));
+          } else {
+            setSelSize(v);
+          }
+        }} style={{flex:1,accentColor:"#fff"}}/>
+        <span style={{fontSize:Math.min((selectedId?(icons.find(i=>i.id===selectedId)?.size||selSize):selSize)*0.5,28),lineHeight:1,width:32,textAlign:"center"}}>{selIcon}</span>
+      </div>
+      {selectedId&&(
+        <div style={{background:"#1a0a00",padding:"6px 16px",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <span style={{color:"#f97316",fontSize:12,fontWeight:700}}>アイコン選択中　　もう一度タップで削除</span>
+          <button onClick={()=>setSelectedId(null)} style={{background:"none",border:"1px solid #444",borderRadius:12,padding:"4px 12px",color:"#aaa",fontSize:12,fontWeight:700,cursor:"pointer"}}>完了</button>
+        </div>
+      )}
+
+      {/* video area — icons positioned relative to container, video uses contain */}
+      <div
+        ref={areaRef}
+        style={{flex:1,position:"relative",background:"#111",overflow:"hidden",touchAction:"none"}}
+        onClick={handleAreaClick}
+        onTouchEnd={handleTouchEnd}
+      >
+        {previewUrl
+          ? <video ref={videoRef} src={previewUrl} style={{width:"100%",height:"100%",objectFit:"cover",pointerEvents:"none",display:"block"}} autoPlay loop muted playsInline onLoadedMetadata={e=>{e.target.currentTime=0.1;}}/>
+          : <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",opacity:0.15,fontSize:80}}>🎬</div>
+        }
+        {/* Icons positioned using % of the actual video rendered area */}
+        <IconOverlay icons={icons} onRemove={removeIcon} onMove={moveIcon} onDragEnd={endDrag} areaRef={areaRef}/>
+
+        {icons.length===0&&(
+          <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",pointerEvents:"none"}}>
+            <div style={{background:"rgba(0,0,0,0.55)",borderRadius:16,padding:"12px 20px",textAlign:"center"}}>
+              <div style={{fontSize:32,marginBottom:4}}>{selIcon}</div>
+              <div style={{color:"#fff",fontSize:12,fontWeight:700}}>ここをタップして配置</div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div style={{padding:"10px 16px 32px",background:"#111",display:"flex",gap:10,alignItems:"center"}}>
+        <button onClick={()=>setIcons([])} style={{flex:1,height:44,borderRadius:12,border:"1px solid #333",background:"none",color:"#aaa",fontSize:13,fontWeight:700,cursor:"pointer"}}>全て消す</button>
+        <div style={{color:"#555",fontSize:12,fontWeight:600,textAlign:"center",flex:1}}>{icons.length}個配置済み</div>
+      </div>
+    </div>
+  );
+}
+
+function IconOverlay({icons, onRemove, onMove, onDragEnd, areaRef}){
+  const [ready, setReady] = useState(false);
+  const dragging = useRef(null);
+
+  useEffect(()=>{
+    const t = setTimeout(()=>setReady(true), 100);
+    return ()=>clearTimeout(t);
+  },[]);
+
+  if(!ready||!icons.length) return null;
+
+  const getAreaRect = () => areaRef.current?.getBoundingClientRect();
+
+  const onPointerDown = (e, ic) => {
+    e.stopPropagation();
+    e.preventDefault();
+    dragging.current = {
+      id: ic.id,
+      startX: e.clientX,
+      startY: e.clientY,
+      origX: ic.x,
+      origY: ic.y,
+      moved: false,
+    };
+    const handleMove = (ev) => {
+      if(!dragging.current) return;
+      const dx = ev.clientX - dragging.current.startX;
+      const dy = ev.clientY - dragging.current.startY;
+      if(Math.abs(dx)>4||Math.abs(dy)>4) dragging.current.moved = true;
+      const r = getAreaRect();
+      if(!r) return;
+      const nx = Math.max(0, Math.min(100, dragging.current.origX + dx/r.width*100));
+      const ny = Math.max(0, Math.min(100, dragging.current.origY + dy/r.height*100));
+      onMove(dragging.current.id, nx, ny);
+    };
+    const handleUp = (ev) => {
+      if(dragging.current && !dragging.current.moved){
+        onRemove(ev, dragging.current.id);
+      }
+      dragging.current = null;
+      onDragEnd && onDragEnd();
+      window.removeEventListener("pointermove", handleMove);
+      window.removeEventListener("pointerup", handleUp);
+    };
+    window.addEventListener("pointermove", handleMove);
+    window.addEventListener("pointerup", handleUp);
+  };
+
+  return(
+    <>
+      {icons.map(ic=>(
+        <div
+          key={ic.id}
+          style={{
+            position:"absolute",
+            left:`${ic.x}%`,
+            top:`${ic.y}%`,
+            fontSize:ic.size,
+            transform:"translate(-50%,-50%)",
+            filter:"drop-shadow(0 2px 6px rgba(0,0,0,0.5))",
+            zIndex:10,
+            userSelect:"none",
+            cursor:"grab",
+            touchAction:"none",
+          }}
+          onPointerDown={e=>onPointerDown(e,ic)}
+        >
+          {ic.icon}
+        </div>
+      ))}
+    </>
+  );
+}
+
+/* ── Post Detail (tap from profile grid) ── */
+function PostDetail({post,onClose,profile,onComment,onDelete,authUser}){
+  const [liked,setLiked]=useState(false);
+  const [likeCount,setLikeCount]=useState(post.likes||0);
+  const [pop,setPop]=useState(false);
+  const [muted,setMuted]=useState(false);
+  const [copied,setCopied]=useState(false);
+  const [showComments,setShowComments]=useState(false);
+  const [confirmDelete,setConfirmDelete]=useState(false);
+  const [commentCount,setCommentCount]=useState(post.comments?.length||0);
+  const ratio=getRatio(post.weight,post.bodyWeight,post.tab);
+  const rm=calc1RM(post.weight,post.reps);
+  const isOwner = authUser?.id === post.user_id;
+
+  useEffect(()=>{
+    supabase.from("comments").select("*",{count:"exact",head:true}).eq("post_id",post.id).then(({count})=>{ if(count!=null) setCommentCount(count); });
+    if(authUser) fetchMyLike(post.id, authUser.id).then(setLiked);
+  },[post.id]);
+
+  const handleLike=async()=>{
+    if(!authUser) return;
+    const next=!liked;
+    setLiked(next);
+    setLikeCount(c=>next?c+1:c-1);
+    setPop(true);setTimeout(()=>setPop(false),300);
+    await toggleLike(post.id, authUser.id, liked);
+    const {count} = await supabase.from("likes").select("*",{count:"exact",head:true}).eq("post_id",post.id);
+    if(count!=null) setLikeCount(count);
+  };
+  const handleShare=()=>{
+    if(navigator.clipboard) navigator.clipboard.writeText("https://formie-alpha.vercel.app").then(()=>{setCopied(true);setTimeout(()=>setCopied(false),2000);});
+  };
+  const handleDelete=async()=>{
+    // delete from DB
+    await supabase.from("posts").delete().eq("id",post.id);
+    // delete video from storage
+    if(post.videoUrl){
+      const path=post.videoUrl.split("/storage/v1/object/public/Formie/")[1];
+      if(path) await supabase.storage.from("Formie").remove([path]);
+    }
+    onDelete(post.id);
+    onClose();
+  };
+
+  return(
+    <div style={{position:"absolute",inset:0,background:"#111",zIndex:300,display:"flex",flexDirection:"column",animation:"fadeIn 0.2s ease"}}>
+      {/* full screen video */}
+      <div style={{position:"absolute",inset:0}}>
+        {post.videoUrl
+          ? <video src={post.videoUrl} style={{width:"100%",height:"100%",objectFit:"cover"}} autoPlay loop muted={muted} playsInline/>
+          : <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100%",opacity:0.15,fontSize:88,color:"#fff"}}>🎬</div>
+        }
+        {/* gradient */}
+        <div style={{position:"absolute",bottom:0,left:0,right:0,height:"55%",background:"linear-gradient(to top,rgba(0,0,0,0.85) 0%,rgba(0,0,0,0.3) 60%,transparent 100%)",pointerEvents:"none"}}/>
+        {/* overlay icons */}
+        {(post.overlayIcons||[]).map((ic,i)=>(
+          <div key={i} style={{position:"absolute",left:`${ic.x}%`,top:`${ic.y}%`,fontSize:ic.size||48,transform:"translate(-50%,-50%)",pointerEvents:"none",filter:"drop-shadow(0 2px 6px rgba(0,0,0,0.5))"}}>{ic.icon}</div>
+        ))}
+      </div>
+
+      {/* top bar */}
+      <div style={{position:"absolute",top:0,left:0,right:0,padding:"14px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",zIndex:10}}>
+        <button onClick={onClose} style={{width:36,height:36,borderRadius:"50%",background:"rgba(0,0,0,0.5)",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>{Ic.close()}</button>
+        <div style={{background:"rgba(0,0,0,0.5)",backdropFilter:"blur(4px)",color:"#fff",borderRadius:20,padding:"5px 14px",fontSize:12,fontWeight:800}}>{post.tab}</div>
+        <div style={{display:"flex",gap:8}}>
+          {isOwner&&(
+            <button onClick={()=>setConfirmDelete(true)} style={{width:36,height:36,borderRadius:"50%",background:"rgba(0,0,0,0.5)",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
+              <svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="#ff4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/>
+              </svg>
+            </button>
+          )}
+          <button onClick={()=>setMuted(m=>!m)} style={{width:36,height:36,borderRadius:"50%",background:"rgba(0,0,0,0.5)",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>{muted?"🔇":"🔊"}</button>
+        </div>
+      </div>
+
+      {/* right actions */}
+      <div style={{position:"absolute",bottom:90,right:12,display:"flex",flexDirection:"column",alignItems:"center",gap:22,zIndex:10}}>
+        <div style={{width:46,height:46,borderRadius:"50%",background:"rgba(255,255,255,0.15)",backdropFilter:"blur(4px)",border:"2.5px solid rgba(255,255,255,0.7)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:26}}>{post.avatar}</div>
+        <button onClick={handleLike} style={{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:2,padding:0}}>
+          <div style={{transition:"transform 0.15s",transform:pop?"scale(1.4)":"scale(1)"}}>{Ic.heart(liked,34)}</div>
+          <span style={{color:"#fff",fontSize:12,fontWeight:800,textShadow:"0 1px 4px rgba(0,0,0,0.8)"}}>{likeCount}</span>
+        </button>
+        <button onClick={()=>setShowComments(true)} style={{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:2,padding:0}}>
+          <svg width={34} height={34} viewBox="0 0 24 24" fill="white" strokeWidth="0"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          <span style={{color:"#fff",fontSize:12,fontWeight:800,textShadow:"0 1px 4px rgba(0,0,0,0.8)"}}>{commentCount}</span>
+        </button>
+        <button onClick={handleShare} style={{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:2,padding:0}}>
+          <svg width={32} height={32} viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+            <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+          </svg>
+          <span style={{color:"#fff",fontSize:12,fontWeight:800,textShadow:"0 1px 4px rgba(0,0,0,0.8)"}}>シェア</span>
+        </button>
+      </div>
+
+      {/* bottom left info */}
+      <div style={{position:"absolute",bottom:18,left:14,right:68,zIndex:10}}>
+        <div style={{marginBottom:4}}><span style={{color:"#fff",fontWeight:900,fontSize:16,textShadow:"0 1px 5px rgba(0,0,0,0.8)"}}>{post.user}</span></div>
+        {post.comment&&<div style={{marginBottom:7}}><span style={{color:"rgba(255,255,255,0.88)",fontSize:14,fontWeight:600,textShadow:"0 1px 3px rgba(0,0,0,0.7)"}}>{post.comment}</span></div>}
+        <div style={{display:"flex",gap:5,flexWrap:"wrap",alignItems:"center",marginBottom:5}}>
+          {[["種目",post.exercise],["重量",post.isBodyweight?"自重":`${post.weight}kg`],["レップ",`${post.reps}回×${post.sets}`]].map(([l,v])=>(
+            <div key={l} style={{background:"rgba(255,255,255,0.2)",backdropFilter:"blur(8px)",borderRadius:8,padding:"0 10px",border:"1px solid rgba(255,255,255,0.3)",display:"flex",gap:5,alignItems:"center",height:26}}>
+              <span style={{fontSize:10,color:"rgba(255,255,255,0.65)",fontWeight:700,whiteSpace:"nowrap"}}>{l}</span>
+              <span style={{fontSize:12,color:"#fff",fontWeight:800,fontFamily:"'DM Mono',monospace",whiteSpace:"nowrap"}}>{v}</span>
+            </div>
+          ))}
+        </div>
+        {(ratio||rm)&&(
+          <div style={{display:"flex",gap:5,flexWrap:"wrap",alignItems:"center"}}>
+            {ratio&&<div style={{background:ratio.bg,borderRadius:8,padding:"0 10px",border:`1.5px solid ${ratio.border}`,display:"flex",gap:5,alignItems:"center",height:26}}><span style={{fontSize:10,color:ratio.text,fontWeight:700,whiteSpace:"nowrap"}}>{ratio.level}</span><span style={{fontSize:12,color:ratio.val,fontWeight:800,fontFamily:"'DM Mono',monospace",whiteSpace:"nowrap"}}>{ratio.ratio}x</span></div>}
+            {rm&&<div style={{background:"#eff6ff",borderRadius:8,padding:"0 10px",border:"1.5px solid #bfdbfe",display:"flex",gap:5,alignItems:"center",height:26}}><span style={{fontSize:10,color:"#2563eb",fontWeight:700,whiteSpace:"nowrap"}}>1RM</span><span style={{fontSize:12,color:"#1e3a8a",fontWeight:800,fontFamily:"'DM Mono',monospace",whiteSpace:"nowrap"}}>{rm}kg</span></div>}
+          </div>
+        )}
+      </div>
+
+      {copied&&<div style={{position:"absolute",top:"40%",left:"50%",transform:"translate(-50%,-50%)",background:"rgba(0,0,0,0.8)",borderRadius:14,padding:"12px 20px",color:"#fff",fontSize:14,fontWeight:800,pointerEvents:"none",whiteSpace:"nowrap",zIndex:20}}>🔗 URLをコピーしました</div>}
+
+      {/* delete confirm */}
+      {confirmDelete&&(
+        <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.7)",zIndex:30,display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <div style={{background:"#fff",borderRadius:20,padding:"24px 20px",width:"80%",maxWidth:300,textAlign:"center"}}>
+            <div style={{fontWeight:800,fontSize:16,marginBottom:8}}>この投稿を削除しますか？</div>
+            <div style={{color:"#aaa",fontSize:13,marginBottom:20}}>動画も一緒に削除されます。</div>
+            <button onClick={handleDelete} style={{width:"100%",height:46,borderRadius:12,border:"none",background:"#e11d48",color:"#fff",fontWeight:800,fontSize:15,cursor:"pointer",marginBottom:10}}>削除する</button>
+            <button onClick={()=>setConfirmDelete(false)} style={{width:"100%",height:46,borderRadius:12,border:"1.5px solid #ebebeb",background:"#f7f7f7",color:"#555",fontWeight:700,fontSize:15,cursor:"pointer"}}>キャンセル</button>
+          </div>
+        </div>
+      )}
+
+      {/* comments sheet */}
+      {showComments&&<CommentsSheet post={post} onClose={()=>setShowComments(false)} onAdd={t=>{onComment(post.id,t);setCommentCount(c=>c+1);}} profile={profile} authUser={authUser}/>}
+    </div>
+  );
+}
+
+/* ── Mini Heart ── */
+const MiniHeart=({liked,size=16})=>(
+  <svg width={size} height={size} viewBox="0 0 24 24" fill={liked?"#e11d48":"none"} stroke={liked?"#e11d48":"#ccc"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+  </svg>
+);
+
+/* ── Comment Item (flat replies, same level) ── */
+function CommentItem({c,depth=0,profile,onAddReply}){
+  const [liked,setLiked]=useState(false);
+  const [likeCount,setLikeCount]=useState(0);
+  const [replying,setReplying]=useState(false);
+  const [replyText,setReplyText]=useState("");
+  const [showReplies,setShowReplies]=useState(true);
+
+  const handleReply=()=>{
+    if(!replyText.trim()) return;
+    onAddReply(replyText.trim());
+    setReplyText("");
+    setReplying(false);
+  };
+
+  return(
+    <div style={{marginBottom:depth===0?14:10}}>
+      <div style={{display:"flex",gap:10}}>
+        <div style={{width:depth===0?34:28,height:depth===0?34:28,borderRadius:"50%",background:"#f2f2f2",display:"flex",alignItems:"center",justifyContent:"center",fontSize:depth===0?18:15,flexShrink:0}}>{c.avatar}</div>
+        <div style={{flex:1}}>
+          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
+            <span style={{color:"#111",fontSize:depth===0?13:12,fontWeight:800}}>{c.user}</span>
+            <span style={{color:"#bbb",fontSize:11,fontWeight:600}}>{c.time}</span>
+          </div>
+          <div style={{display:"flex",alignItems:"flex-start",gap:8}}>
+            <div style={{flex:1,color:"#444",fontSize:depth===0?13:12,lineHeight:1.7,fontWeight:600,background:"#f7f7f7",borderRadius:12,padding:"8px 12px"}}>{c.text}</div>
+            <button onClick={()=>{setLiked(l=>!l);setLikeCount(n=>liked?n-1:n+1);}} style={{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:1,padding:"6px 2px",flexShrink:0}}>
+              <MiniHeart liked={liked}/>
+              {likeCount>0&&<span style={{fontSize:10,color:liked?"#e11d48":"#bbb",fontWeight:700}}>{likeCount}</span>}
+            </button>
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:12,marginTop:5,paddingLeft:2}}>
+            <button onClick={()=>setReplying(r=>!r)} style={{background:"none",border:"none",cursor:"pointer",color:"#aaa",fontSize:11,fontWeight:700,padding:0}}>返信</button>
+            {(c.replies||[]).length>0&&(
+              <button onClick={()=>setShowReplies(v=>!v)} style={{background:"none",border:"none",cursor:"pointer",color:"#aaa",fontSize:11,fontWeight:700,padding:0}}>
+                {showReplies?`▲ 返信を隠す`:`▼ 返信 ${c.replies.length}件`}
+              </button>
+            )}
+          </div>
+          {replying&&(
+            <div style={{display:"flex",gap:8,marginTop:8}}>
+              <input value={replyText} onChange={e=>setReplyText(e.target.value)} placeholder={`${c.user}に返信...`} style={{flex:1,background:"#f7f7f7",border:"1.5px solid #ebebeb",borderRadius:20,padding:"8px 14px",color:"#111",fontSize:13,outline:"none",fontFamily:"inherit",fontWeight:600}} autoFocus/>
+              <button onClick={handleReply} style={{background:"#111",color:"#fff",border:"none",borderRadius:20,padding:"8px 16px",fontWeight:800,cursor:"pointer",fontSize:13}}>返信</button>
+            </div>
+          )}
+        </div>
+      </div>
+      {/* replies — flat, same visual level as sibling comments */}
+      {showReplies&&(c.replies||[]).length>0&&(
+        <div style={{marginLeft:44,marginTop:8,borderLeft:"2px solid #f2f2f2",paddingLeft:12}}>
+          {(c.replies||[]).map((r,ri)=>(
+            <div key={ri} style={{display:"flex",gap:8,marginBottom:8}}>
+              <div style={{width:28,height:28,borderRadius:"50%",background:"#f2f2f2",display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,flexShrink:0}}>{r.avatar}</div>
+              <div style={{flex:1}}>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:2}}>
+                  <span style={{color:"#111",fontSize:12,fontWeight:800}}>{r.user}</span>
+                  <span style={{color:"#bbb",fontSize:11,fontWeight:600}}>{r.time}</span>
+                </div>
+                <div style={{color:"#444",fontSize:12,lineHeight:1.7,fontWeight:600,background:"#f7f7f7",borderRadius:12,padding:"7px 11px"}}>{r.text}</div>
+                <button onClick={()=>onAddReply(`@${r.user} `)} style={{background:"none",border:"none",cursor:"pointer",color:"#aaa",fontSize:11,fontWeight:700,padding:"4px 0 0"}}>返信</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── Comments Sheet ── */
+function CommentsSheet({post,onClose,onAdd,profile,authUser}){
+  const [text,setText]=useState("");
+  const [comments,setComments]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [sending,setSending]=useState(false);
+
+  useEffect(()=>{
+    setLoading(true);
+    fetchCommentsDB(post.id).then(cs=>{setComments(cs);setLoading(false);});
+  },[post.id]);
+
+  const addReply=async(parentId, replyText)=>{
+    if(!authUser) return;
+    try{
+      const r = await saveCommentDB(post.id, authUser.id, replyText, parentId);
+      setComments(prev=>prev.map(c=>c.id===parentId?{...c,replies:[...(c.replies||[]),r]}:c));
+    }catch(e){ console.error(e); }
+  };
+
+  const handleSend=async()=>{
+    if(!text.trim()||!authUser||sending) return;
+    setSending(true);
+    try{
+      const c = await saveCommentDB(post.id, authUser.id, text.trim());
+      setComments(prev=>[...prev, c]);
+      onAdd(text.trim());
+      setText("");
+    }catch(e){ console.error(e); }
+    setSending(false);
+  };
+
+  return(
+    <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.3)",zIndex:200,animation:"fadeIn 0.2s ease"}} onClick={onClose}>
+      <div style={{position:"absolute",bottom:0,left:0,right:0,background:"#fff",borderRadius:"22px 22px 0 0",maxHeight:"78vh",display:"flex",flexDirection:"column",animation:"sheetUp 0.3s ease"}} onClick={e=>e.stopPropagation()}>
+        <div style={{display:"flex",justifyContent:"center",padding:"10px 0 0"}}><div style={{width:36,height:4,borderRadius:2,background:"#e0e0e0"}}/></div>
+        <div style={{padding:"10px 16px 12px",display:"flex",alignItems:"center",justifyContent:"space-between",borderBottom:"1.5px solid #f2f2f2"}}>
+          <div style={{fontWeight:800,fontSize:15}}>コメント {comments.reduce((s,c)=>s+1+(c.replies?.length||0),0)}件</div>
+          <button onClick={onClose} style={{width:30,height:30,borderRadius:"50%",background:"#f2f2f2",border:"none",fontSize:16,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:"#666"}}>✕</button>
+        </div>
+        <div style={{flex:1,overflowY:"auto",padding:"14px 16px"}}>
+          {loading?(
+            <div style={{textAlign:"center",color:"#ccc",padding:"40px 0",fontSize:13,fontWeight:700}}>読み込み中...</div>
+          ):comments.length===0?(
+            <div style={{textAlign:"center",color:"#ccc",padding:"40px 0",fontSize:13,fontWeight:700}}><div style={{fontSize:40,marginBottom:10}}>💬</div>まだコメントがありません</div>
+          ):(
+            comments.map((c,i)=><CommentItem key={c.id||i} c={c} depth={0} profile={profile} onAddReply={t=>addReply(c.id,t)}/>)
+          )}
+        </div>
+        <div style={{padding:"10px 16px 34px",borderTop:"1.5px solid #f2f2f2",display:"flex",gap:10}}>
+          <input value={text} onChange={e=>setText(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();handleSend();}}} placeholder="アドバイスを入力..." style={{flex:1,background:"#f7f7f7",border:"none",borderRadius:24,padding:"11px 16px",color:"#111",fontSize:14,outline:"none",fontFamily:"inherit",fontWeight:600}}/>
+          <button onClick={handleSend} disabled={sending||!text.trim()} style={{background:sending||!text.trim()?"#ddd":"#111",color:sending||!text.trim()?"#aaa":"#fff",border:"none",borderRadius:24,padding:"11px 20px",fontWeight:800,cursor:sending?"default":"pointer",fontSize:14}}>
+            {sending?"...":"送信"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Video Slide ── */
+function VideoSlide({post,isFirst,onCommentOpen,authUser,onDelete}){
+  const [liked,setLiked]=useState(false);
+  const [likeCount,setLikeCount]=useState(post.likes||0);
+  const [pop,setPop]=useState(false);
+  const [copied,setCopied]=useState(false);
+  const [muted,setMuted]=useState(true);
+  const [following,setFollowing]=useState(false);
+  const [followLoading,setFollowLoading]=useState(false);
+  const isOwn = authUser?.id === post.user_id;
+  const ratio=getRatio(post.weight,post.bodyWeight,post.tab);
+  const rm=calc1RM(post.weight,post.reps);
+
+  const [commentCount,setCommentCount]=useState(post.comments?.length||0);
+
+  useEffect(()=>{
+    if(!authUser) return;
+    fetchMyLike(post.id, authUser.id).then(setLiked);
+    if(!isOwn) fetchIsFollowing(authUser.id, post.user_id).then(setFollowing);
+    // DBからコメント数を取得
+    supabase.from("comments").select("*",{count:"exact",head:true}).eq("post_id",post.id).then(({count})=>{ if(count!=null) setCommentCount(count); });
+  },[post.id, authUser?.id]);
+
+  const handleLike=async()=>{
+    if(!authUser) return;
+    const next=!liked;
+    setLiked(next);
+    setLikeCount(c=>next?c+1:c-1);
+    setPop(true);setTimeout(()=>setPop(false),300);
+    await toggleLike(post.id, authUser.id, liked);
+    const {count} = await supabase.from("likes").select("*",{count:"exact",head:true}).eq("post_id",post.id);
+    if(count!=null) setLikeCount(count);
+  };
+  const handleFollow=async()=>{
+    if(!authUser||isOwn||followLoading) return;
+    setFollowLoading(true);
+    const next=!following;
+    setFollowing(next);
+    await toggleFollow(authUser.id, post.user_id, !next);
+    setFollowLoading(false);
+  };
+  const handleShare=()=>{
+    const url=`https://formie-alpha.vercel.app`;
+    if(navigator.clipboard){
+      navigator.clipboard.writeText(url).then(()=>{setCopied(true);setTimeout(()=>setCopied(false),2000);});
+    }
+  };
+
+  // ダブルタップいいね
+  const lastTap=useRef(0);
+  const [heartPos,setHeartPos]=useState(null);
+  const handleDoubleTap=(e)=>{
+    const now=Date.now();
+    if(now-lastTap.current<300){
+      // ダブルタップ
+      const rect=e.currentTarget.getBoundingClientRect();
+      const x=e.clientX-rect.left;
+      const y=e.clientY-rect.top;
+      setHeartPos({x,y});
+      setTimeout(()=>setHeartPos(null),800);
+      if(!liked){
+        setLiked(true);
+        setLikeCount(c=>c+1);
+        setPop(true);setTimeout(()=>setPop(false),300);
+        toggleLike(post.id, authUser?.id, liked);
+      }
+    }
+    lastTap.current=now;
+  };
+
+  return(
+    <div style={{width:"100%",height:"100%",position:"relative",background:"#111",flexShrink:0,overflow:"hidden"}} onClick={handleDoubleTap}>
+      {/* video */}
+      {post.videoUrl
+        ? <video src={post.videoUrl}
+            style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover",opacity:0,transition:"opacity 0.2s"}}
+            loop muted={muted} playsInline autoPlay preload="auto"
+            onCanPlay={e=>e.target.style.opacity=1}
+            onError={e=>{const s=e.target.closest('[data-slide]');if(s)s.style.display='none';}}
+          />
+        : <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center"}}><div style={{opacity:0.1,fontSize:88,color:"#fff"}}>🎬</div></div>
+      }
+
+      {/* ダブルタップハートアニメーション */}
+      {heartPos&&(
+        <div style={{position:"absolute",left:heartPos.x,top:heartPos.y,transform:"translate(-50%,-50%)",fontSize:72,zIndex:50,pointerEvents:"none",animation:"zoomIn 0.15s ease,fadeOut 0.6s ease 0.2s forwards"}}>❤️</div>
+      )}
+
+      {/* gradient */}
+      <div style={{position:"absolute",bottom:0,left:0,right:0,height:"52%",background:"linear-gradient(to top,rgba(0,0,0,0.82) 0%,rgba(0,0,0,0.35) 55%,transparent 100%)",pointerEvents:"none"}}/>
+
+      {/* overlay icons */}
+      {(post.overlayIcons||[]).map((ic,i)=>(
+        <div key={i} style={{position:"absolute",left:`${ic.x}%`,top:`${ic.y}%`,fontSize:ic.size||48,transform:"translate(-50%,-50%)",pointerEvents:"none",filter:"drop-shadow(0 2px 6px rgba(0,0,0,0.5))"}}>{ic.icon}</div>
+      ))}
+
+      {/* top */}
+      <div style={{position:"absolute",top:16,left:16,background:"rgba(0,0,0,0.5)",backdropFilter:"blur(4px)",color:"#fff",borderRadius:20,padding:"5px 14px",fontSize:12,fontWeight:800,zIndex:2}}>{post.tab}</div>
+      <button onClick={e=>{e.stopPropagation();setMuted(m=>!m);}} style={{position:"absolute",top:14,right:14,width:34,height:34,borderRadius:"50%",background:"rgba(0,0,0,0.5)",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",zIndex:2,fontSize:15}}>{muted?"🔇":"🔊"}</button>
+
+      {/* RIGHT: actions — aligned to bottom */}
+      <div onClick={e=>e.stopPropagation()} style={{position:"absolute",bottom:90,right:12,display:"flex",flexDirection:"column",alignItems:"center",gap:22,zIndex:3}}>
+        {/* アバター */}
+        <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
+          <div style={{width:46,height:46,borderRadius:"50%",background:"rgba(255,255,255,0.15)",backdropFilter:"blur(4px)",border:"2.5px solid rgba(255,255,255,0.7)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:26}}>
+            {post.avatar}
+          </div>
+          {!isOwn&&(
+            <button onClick={handleFollow} disabled={followLoading} style={{background:following?"rgba(255,255,255,0.25)":"#fff",color:following?"#fff":"#111",border:following?"1.5px solid rgba(255,255,255,0.6)":"none",borderRadius:20,padding:"3px 10px",fontSize:10,fontWeight:800,cursor:"pointer",backdropFilter:"blur(4px)",transition:"all 0.2s",minWidth:52}}>
+              {following?"✓ 済":"＋ フォロー"}
+            </button>
+          )}
+        </div>
+        <button onClick={handleLike} style={{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:2,padding:0}}>
+          <div style={{transition:"transform 0.15s",transform:pop?"scale(1.4)":"scale(1)"}}>{Ic.heart(liked,34)}</div>
+          <span style={{color:"#fff",fontSize:12,fontWeight:800,textShadow:"0 1px 4px rgba(0,0,0,0.8)"}}>{likeCount}</span>
+        </button>
+        <button onClick={e=>{e.stopPropagation();onCommentOpen(()=>setCommentCount(c=>c+1));}} style={{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:2,padding:0}}>
+          <svg width={34} height={34} viewBox="0 0 24 24" fill="white" strokeWidth="0">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+          </svg>
+          <span style={{color:"#fff",fontSize:12,fontWeight:800,textShadow:"0 1px 4px rgba(0,0,0,0.8)"}}>{commentCount}</span>
+        </button>
+        <button onClick={handleShare} style={{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:2,padding:0}}>
+          <svg width={32} height={32} viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+            <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+          </svg>
+          <span style={{color:"#fff",fontSize:12,fontWeight:800,textShadow:"0 1px 4px rgba(0,0,0,0.8)"}}>シェア</span>
+        </button>
+      </div>
+
+      {/* BOTTOM LEFT */}
+      <div style={{position:"absolute",bottom:18,left:14,right:68,zIndex:3}}>
+
+        {/* row1: username */}
+        <div style={{marginBottom:4}}>
+          <span style={{color:"#fff",fontWeight:900,fontSize:16,textShadow:"0 1px 5px rgba(0,0,0,0.8)"}}>{post.user}</span>
+        </div>
+
+        {/* row2: comment */}
+        {post.comment&&(
+          <div style={{marginBottom:7}}>
+            <span style={{color:"rgba(255,255,255,0.88)",fontSize:14,fontWeight:600,textShadow:"0 1px 3px rgba(0,0,0,0.7)"}}>{post.comment}</span>
+          </div>
+        )}
+
+        {/* row3: 種目・重量・レップ */}
+        <div style={{display:"flex",gap:5,flexWrap:"wrap",alignItems:"center",marginBottom:5}}>
+          {[
+            ["種目",  post.exercise],
+            ["重量",  post.isBodyweight?"自重":`${post.weight}kg`],
+            ["レップ",`${post.reps}回×${post.sets}`],
+          ].map(([l,v])=>(
+            <div key={l} style={{background:"rgba(255,255,255,0.2)",backdropFilter:"blur(8px)",borderRadius:8,padding:"0 10px",border:"1px solid rgba(255,255,255,0.3)",display:"flex",gap:5,alignItems:"center",height:26}}>
+              <span style={{fontSize:10,color:"rgba(255,255,255,0.65)",fontWeight:700,whiteSpace:"nowrap"}}>{l}</span>
+              <span style={{fontSize:12,color:"#fff",fontWeight:800,fontFamily:"'DM Mono',monospace",whiteSpace:"nowrap"}}>{v}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* row4: エリート・1RM */}
+        {(ratio||rm)&&(
+          <div style={{display:"flex",gap:5,flexWrap:"wrap",alignItems:"center"}}>
+            {ratio&&(
+              <div style={{background:ratio.bg,borderRadius:8,padding:"0 10px",border:`1.5px solid ${ratio.border}`,display:"flex",gap:5,alignItems:"center",height:26}}>
+                <span style={{fontSize:10,color:ratio.text,fontWeight:700,whiteSpace:"nowrap"}}>{ratio.level}</span>
+                <span style={{fontSize:12,color:ratio.val,fontWeight:800,fontFamily:"'DM Mono',monospace",whiteSpace:"nowrap"}}>{ratio.ratio}x</span>
+              </div>
+            )}
+            {rm&&(
+              <div style={{background:"#eff6ff",borderRadius:8,padding:"0 10px",border:"1.5px solid #bfdbfe",display:"flex",gap:5,alignItems:"center",height:26}}>
+                <span style={{fontSize:10,color:"#2563eb",fontWeight:700,whiteSpace:"nowrap"}}>1RM</span>
+                <span style={{fontSize:12,color:"#1e3a8a",fontWeight:800,fontFamily:"'DM Mono',monospace",whiteSpace:"nowrap"}}>{rm}kg</span>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {copied&&(
+        <div style={{position:"absolute",top:"40%",left:"50%",transform:"translate(-50%,-50%)",background:"rgba(0,0,0,0.8)",borderRadius:14,padding:"12px 20px",color:"#fff",fontSize:14,fontWeight:800,pointerEvents:"none",whiteSpace:"nowrap",animation:"fadeIn 0.2s ease",zIndex:10}}>
+          🔗 URLをコピーしました
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── Edit Profile ── */
+function EditProfileScreen({profile,onSave,onBack}){
+  const [name,setName]=useState(profile.name||"");
+  const [weight,setWeight]=useState(profile.weight||70);
+  const [height,setHeight]=useState(profile.height||170);
+  const [avatar,setAvatar]=useState(profile.avatar||"🐨");
+  const [saved,setSaved]=useState(false);
+  const bmi=weight&&height?(weight/((height/100)**2)).toFixed(1):null;
+  const inp={width:"100%",background:"#f7f7f7",border:"1.5px solid #ebebeb",borderRadius:14,padding:"12px 14px",color:"#111",fontSize:15,outline:"none",fontFamily:"inherit",fontWeight:600};
+  const handle=()=>{onSave({name,weight,height,avatar});setSaved(true);setTimeout(()=>{setSaved(false);onBack();},900);};
+  return(
+    <div style={{height:"100%",display:"flex",flexDirection:"column",background:"#fff"}}>
+      <div style={{padding:"16px 16px 14px",display:"flex",alignItems:"center",gap:12,borderBottom:"1.5px solid #f2f2f2"}}>
+        <button onClick={onBack} style={{width:36,height:36,borderRadius:"50%",background:"#f2f2f2",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>{Ic.back()}</button>
+        <div style={{fontWeight:800,fontSize:16}}>プロフィール編集</div>
+      </div>
+      <div style={{flex:1,overflowY:"auto",padding:"20px 16px 40px"}}>
+        <div style={{display:"flex",flexDirection:"column",alignItems:"center",marginBottom:24}}>
+          <div style={{width:80,height:80,borderRadius:"50%",background:"#f2f2f2",display:"flex",alignItems:"center",justifyContent:"center",fontSize:44,marginBottom:14,border:"2px solid #ebebeb"}}>{avatar}</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,width:"100%"}}>
+            {ANIMAL_ICONS.map(ic=>(
+              <button key={ic} onClick={()=>setAvatar(ic)} style={{height:64,borderRadius:16,border:avatar===ic?"2.5px solid #111":"1.5px solid #ebebeb",background:avatar===ic?"#f2f2f2":"#fff",fontSize:28,cursor:"pointer",transition:"all 0.15s"}}>{ic}</button>
+            ))}
+          </div>
+        </div>
+        <div style={{marginBottom:12}}>
+          <label style={{color:"#aaa",fontSize:11,fontWeight:700,display:"block",marginBottom:6}}>ニックネーム</label>
+          <input value={name} onChange={e=>setName(e.target.value)} placeholder="例：たける" style={inp}/>
+        </div>
+        {[{label:"体重",value:weight,onChange:setWeight,min:30,max:200,step:1,unit:"kg"},{label:"身長",value:height,onChange:setHeight,min:130,max:230,step:1,unit:"cm"}].map(({label,...p})=>(
+          <div key={label} style={{marginBottom:10,background:"#f7f7f7",borderRadius:14,padding:"13px 14px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+            <span style={{color:"#888",fontSize:14,fontWeight:700}}>{label}</span>
+            <Counter {...p}/>
+          </div>
+        ))}
+        {bmi&&<div style={{background:"#f7f7f7",borderRadius:14,padding:"12px 14px",marginBottom:4,display:"flex",justifyContent:"space-between",alignItems:"center"}}><span style={{color:"#888",fontSize:14,fontWeight:700}}>BMI（自動計算）</span><span style={{fontFamily:"'DM Mono',monospace",fontWeight:800,fontSize:16,color:"#111"}}>{bmi}</span></div>}
+      </div>
+      <div style={{padding:"12px 16px 36px",borderTop:"1.5px solid #f2f2f2"}}>
+        <button onClick={handle} style={{width:"100%",height:52,borderRadius:16,border:"none",background:saved?"#22c55e":"#111",color:"#fff",fontSize:16,fontWeight:800,cursor:"pointer",transition:"background 0.3s",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+          {saved?<>{Ic.check()} 保存しました</>:"保存する"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ── Grid Thumbnail ── */
+function GridThumb({p, profile, onPostTap}){
+  const [visible, setVisible] = useState(false);
+  const [errored, setErrored] = useState(false);
+  if(errored) return null;
+  return(
+    <div onClick={()=>visible&&onPostTap(p)} style={{aspectRatio:"9/16",background:"#f2f2f2",position:"relative",display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",cursor:"pointer",opacity:visible?1:0,transition:"opacity 0.2s"}}>
+      {p.videoUrl
+        ? <video
+            src={p.videoUrl}
+            style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover"}}
+            muted playsInline preload="metadata"
+            onLoadedMetadata={e=>{ e.target.currentTime=0.1; setVisible(true); }}
+            onError={()=>setErrored(true)}
+          />
+        : null
+      }
+      <div style={{position:"absolute",bottom:0,left:0,right:0,padding:"24px 6px 5px",background:"linear-gradient(to top,rgba(0,0,0,0.65),transparent)",zIndex:1}}>
+        <div style={{color:"#fff",fontSize:10,fontWeight:800}}>{p.exercise}</div>
+        <div style={{color:"rgba(255,255,255,0.65)",fontSize:9,fontWeight:600}}>{p.isBodyweight?"自重":p.weight?`${p.weight}kg×${p.reps}rep`:""}</div>
+      </div>
+      <div style={{position:"absolute",bottom:22,left:6,width:20,height:20,borderRadius:"50%",background:"rgba(0,0,0,0.4)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,zIndex:2}}>{p.avatar||profile.avatar||"🐨"}</div>
+      {(p.overlayIcons||[]).map((ic,ii)=>(
+        <div key={ii} style={{position:"absolute",left:`${ic.x}%`,top:`${ic.y}%`,fontSize:Math.max(ic.size*0.45,10),transform:"translate(-50%,-50%)",pointerEvents:"none",zIndex:3}}>{ic.icon}</div>
+      ))}
+      <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",zIndex:2,opacity:0.5}}>{Ic.play(20)}</div>
+      <div style={{position:"absolute",top:4,left:4,background:"rgba(0,0,0,0.5)",borderRadius:6,padding:"2px 6px",fontSize:9,color:"#fff",fontWeight:700,zIndex:4}}>{p.tab}</div>
+    </div>
+  );
+}
+
+/* ── Profile Screen ── */
+function ProfileScreen({profile,myPosts,onEditOpen,onPostTap,onLogout,authUser}){
+  const [showMenu,setShowMenu]=useState(false);
+  const [followCounts,setFollowCounts]=useState({following:0,followers:0});
+  const bmi=profile.weight&&profile.height?(profile.weight/((profile.height/100)**2)).toFixed(1):null;
+
+  useEffect(()=>{
+    if(!authUser) return;
+    fetchFollowCounts(authUser.id).then(setFollowCounts);
+  },[authUser?.id]);
+
+  return(
+    <div style={{height:"100%",overflowY:"auto",background:"#fff"}}>
+      <div style={{padding:"32px 16px 20px",display:"flex",flexDirection:"column",alignItems:"center",borderBottom:"1.5px solid #f2f2f2",position:"relative"}}>
+        {/* top right menu */}
+        <div style={{position:"absolute",top:16,right:16}}>
+          <button onClick={()=>setShowMenu(m=>!m)} style={{background:"none",border:"none",cursor:"pointer",padding:6,color:"#bbb",fontSize:20,lineHeight:1}}>⋯</button>
+          {showMenu&&(
+            <div style={{position:"absolute",right:0,top:"100%",background:"#fff",borderRadius:12,border:"1.5px solid #f2f2f2",boxShadow:"0 4px 16px rgba(0,0,0,0.08)",zIndex:50,minWidth:120}}>
+              <button onClick={()=>{setShowMenu(false);onLogout();}} style={{display:"block",width:"100%",padding:"12px 16px",background:"none",border:"none",cursor:"pointer",color:"#e11d48",fontSize:13,fontWeight:700,textAlign:"left",borderRadius:12}}>ログアウト</button>
+            </div>
+          )}
+        </div>
+        <div style={{width:80,height:80,borderRadius:"50%",background:"#f2f2f2",display:"flex",alignItems:"center",justifyContent:"center",fontSize:42,marginBottom:10,border:"2px solid #ebebeb"}}>{profile.avatar||"🐨"}</div>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+          <div style={{color:"#111",fontWeight:900,fontSize:18}}>{profile.name||"名前を設定しよう"}</div>
+          <button onClick={onEditOpen} style={{background:"none",border:"none",cursor:"pointer",padding:2,display:"flex",alignItems:"center",opacity:0.5}}>{Ic.edit()}</button>
+        </div>
+        <div style={{color:"#aaa",fontSize:13,fontWeight:600}}>{profile.weight?`${profile.weight}kg`:""}{profile.height?` · ${profile.height}cm`:""}{bmi?` · BMI ${bmi}`:""}</div>
+        <div style={{display:"flex",gap:28,marginTop:18}}>
+          {[["投稿",myPosts.length],["フォロー",followCounts.following],["フォロワー",followCounts.followers],["いいね",myPosts.reduce((s,p)=>s+(p.likes||0),0)]].map(([l,v])=>(
+            <div key={l} style={{textAlign:"center"}}>
+              <div style={{color:"#111",fontWeight:900,fontSize:20,fontFamily:"'DM Mono',monospace"}}>{v}</div>
+              <div style={{color:"#aaa",fontSize:11,fontWeight:700}}>{l}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+      {myPosts.length>0?(
+        <div>
+          <div style={{padding:"12px 16px 6px",color:"#aaa",fontSize:10,fontWeight:800,letterSpacing:1.5}}>MY POSTS</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:2}}>
+            {myPosts.map(p=>(
+              <GridThumb key={p.id} p={p} profile={profile} onPostTap={onPostTap}/>
+            ))}
+          </div>
+        </div>
+      ):(
+        <div style={{textAlign:"center",padding:"50px 0",color:"#ddd"}}>
+          <div style={{fontSize:44,marginBottom:10}}>📹</div>
+          <div style={{fontSize:13,fontWeight:700,color:"#bbb"}}>まだ投稿がありません</div>
+        </div>
+      )}
+      <div style={{padding:"16px 16px 40px"}}>
+      </div>
+    </div>
+  );
+}
+
+/* ── Post Modal ── */
+function PostModal({onClose,onPost,profile,exercises,onAddExercise,authUserRef}){
+  const [step,setStep]=useState(0); // 0=pick+mosaic, 1=exercise, 2=stats, 3=confirm
+  const [videoFile,setVideoFile]=useState(null);
+  const [previewUrl,setPreviewUrl]=useState(null);
+  const [overlayIcons,setOverlayIcons]=useState([]);
+  const [showIconPlacer,setShowIconPlacer]=useState(false);
+  const [selTab,setSelTab]=useState(TABS[0]);
+  const [exercise,setExercise]=useState("");
+  const [customMode,setCustomMode]=useState(false);
+  const [customInput,setCustomInput]=useState("");
+  const [isBodyweight,setIsBodyweight]=useState(false);
+  const [weight,setWeight]=useState(DEFAULT_WEIGHT[TABS[0]]||60);
+  const [reps,setReps]=useState(10);
+  const [sets,setSets]=useState(3);
+  const [comment,setComment]=useState("");
+  const [uploading,setUploading]=useState(false);
+  const [uploadErr,setUploadErr]=useState("");
+  const [done,setDone]=useState(false);
+  const fileInputRef=useRef(null);
+
+  const bw=profile.weight||70;
+  const rm=isBodyweight?null:calc1RM(weight,reps);
+  const ratio=isBodyweight?null:getRatio(weight,bw,selTab);
+  const exList=exercises[selTab]||[];
+  const chosenEx=exercise||(customMode?customInput:"");
+  const canNext=step===1?!!chosenEx:step===0?!!videoFile:true;
+  const inp={width:"100%",background:"#f7f7f7",border:"1.5px solid #ebebeb",borderRadius:14,padding:"12px 14px",color:"#111",fontSize:15,outline:"none",fontFamily:"inherit",fontWeight:600};
+
+  const handleFileChange=(e)=>{
+    const f=e.target.files[0];
+    if(!f) return;
+    // 200MB limit check
+    if(f.size > 200*1024*1024){
+      setUploadErr("動画が大きすぎます（200MB以上）。短く撮り直すか、圧縮してください。");
+      return;
+    }
+    setVideoFile(f);
+    setPreviewUrl(URL.createObjectURL(f));
+    setUploadErr("");
+  };
+
+  if(showIconPlacer) return <IconPlacer previewUrl={previewUrl} onDone={icons=>{setOverlayIcons(icons);setShowIconPlacer(false);}} onBack={()=>setShowIconPlacer(false)}/>;
+
+  const handleNext=async()=>{
+    if(step===0){ setStep(1); return; }
+    if(step===1){
+      if(customMode&&customInput.trim()) onAddExercise(selTab,customInput.trim());
+      setStep(2); return;
+    }
+    if(step===2){ setStep(3); return; }
+    // step 3: upload then post
+    setUploading(true);
+    setUploadErr("");
+    try{
+      const videoUrl=await uploadVideo(videoFile);
+      await savePost({exercise:chosenEx||"未入力",weight:isBodyweight?0:weight,reps,sets,bodyWeight:bw,comment,avatar:profile.avatar||"🐨",tab:selTab,overlayIcons,videoUrl,isBodyweight},authUserRef.current?.id);
+      onPost({exercise:chosenEx||"未入力",weight:isBodyweight?0:weight,reps,sets,bodyWeight:bw,comment,avatar:profile.avatar||"🐨",tab:selTab,overlayIcons,videoUrl,isBodyweight});
+      setUploading(false);
+      setDone(true);
+      setTimeout(()=>onClose(), 2200);
+    }catch(e){
+      console.error("post error:",e);
+      setUploadErr(`❌ ${e.message||"投稿に失敗しました"}`);
+      setUploading(false);
+    }
+  };
+
+  return(
+    <div style={{position:"absolute",inset:0,background:"#fff",zIndex:300,display:"flex",flexDirection:"column",animation:"fadeIn 0.18s ease"}}>
+
+      {/* ── 投稿完了画面 ── */}
+      {done&&(
+        <div style={{position:"absolute",inset:0,background:"#fff",zIndex:10,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:16,animation:"zoomIn 0.3s ease"}}>
+          <div style={{width:80,height:80,borderRadius:"50%",background:"#111",display:"flex",alignItems:"center",justifyContent:"center",fontSize:40}}>💪</div>
+          <div style={{fontWeight:900,fontSize:22,color:"#111"}}>投稿完了！</div>
+          <div style={{color:"#aaa",fontSize:14,fontWeight:600}}>フィードに反映されました</div>
+          <div style={{display:"flex",gap:8,marginTop:8}}>
+            {["胸","背中","肩","腕","脚","腹"].map(t=>(
+              <div key={t} style={{width:8,height:8,borderRadius:"50%",background:t===selTab?"#111":"#e0e0e0"}}/>
+            ))}
+          </div>
+          <div style={{marginTop:4,color:"#bbb",fontSize:12,fontWeight:600}}>自動で閉じます...</div>
+        </div>
+      )}
+
+      <div style={{padding:"16px 16px 0",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+        <button onClick={onClose} style={{width:36,height:36,borderRadius:"50%",background:"#f2f2f2",border:"none",fontSize:18,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:"#555"}}>✕</button>
+        <div style={{fontWeight:800,fontSize:15}}>{step===0?"動画を選ぶ":step===1?"種目を選ぶ":step===2?"トレーニング情報":"確認 & 投稿"}</div>
+        <div style={{width:36}}/>
+      </div>
+      <div style={{display:"flex",gap:5,padding:"14px 16px 4px"}}>
+        {[0,1,2,3].map(s=><div key={s} style={{flex:1,height:3,borderRadius:2,background:s<=step?"#111":"#ebebeb",transition:"background 0.3s"}}/>)}
+      </div>
+
+      <div style={{flex:1,overflowY:"auto",padding:"14px 16px 16px"}}>
+
+        {/* STEP 0: video pick */}
+        {step===0&&(
+          <div style={{animation:"slideUp 0.25s ease"}}>
+            <input ref={fileInputRef} type="file" accept="video/*,video/mp4,video/quicktime" onChange={handleFileChange} style={{display:"none"}}/>
+            {!videoFile?(
+              <div style={{marginBottom:16}}>
+                <div onClick={()=>fileInputRef.current.click()} style={{width:"100%",height:260,background:"#f7f7f7",borderRadius:20,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",border:"1.5px dashed #ddd",cursor:"pointer",marginBottom:10}}>
+                  <div style={{fontSize:48,marginBottom:10}}>📹</div>
+                  <div style={{color:"#333",fontSize:15,fontWeight:800}}>タップして動画を選択</div>
+                  <div style={{color:"#bbb",fontSize:12,marginTop:4,fontWeight:600}}>カメラロールから選べます</div>
+                </div>
+                <div style={{background:"#f7f7f7",borderRadius:12,padding:"10px 14px",display:"flex",alignItems:"center",gap:8}}>
+                  <span style={{fontSize:16}}>💡</span>
+                  <span style={{color:"#888",fontSize:12,fontWeight:700}}>10秒程度の動画推奨。短い方がフォームの確認がしやすいです。</span>
+                </div>
+              </div>
+            ):(
+              <div style={{marginBottom:16}}>
+                <div style={{position:"relative",width:"100%",height:320,borderRadius:16,overflow:"hidden",background:"#111",marginBottom:8}}>
+                  <video
+                    src={previewUrl}
+                    style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}
+                    controls playsInline
+                    onLoadedMetadata={e=>{ e.target.currentTime=0.1; e.target.play().catch(()=>{}); }}
+                  />
+                  {overlayIcons.map((ic,i)=>(
+                    <div key={i} style={{position:"absolute",left:`${ic.x}%`,top:`${ic.y}%`,fontSize:ic.size,transform:"translate(-50%,-50%)",pointerEvents:"none",filter:"drop-shadow(0 2px 4px rgba(0,0,0,0.5))"}}>{ic.icon}</div>
+                  ))}
+                </div>
+                <button onClick={()=>fileInputRef.current.click()} style={{width:"100%",height:40,borderRadius:12,border:"1.5px solid #ebebeb",background:"#f7f7f7",color:"#555",fontSize:13,fontWeight:700,cursor:"pointer"}}>動画を変更</button>
+              </div>
+            )}
+            {videoFile&&(
+              <div style={{background:"#f7f7f7",borderRadius:16,padding:14,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                <div>
+                  <div style={{fontWeight:800,fontSize:13,color:"#111"}}>顔隠しアイコン</div>
+                  <div style={{color:"#aaa",fontSize:12,fontWeight:600,marginTop:2}}>{overlayIcons.length>0?`${overlayIcons.length}個配置済み`:"タップして顔の上にアイコンを置く"}</div>
+                </div>
+                <button onClick={()=>setShowIconPlacer(true)} style={{background:"#111",color:"#fff",border:"none",borderRadius:20,padding:"8px 16px",fontWeight:800,fontSize:13,cursor:"pointer"}}>
+                  {overlayIcons.length>0?"編集":"開く"}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* STEP 1: exercise */}
+        {step===1&&(
+          <div style={{animation:"slideUp 0.25s ease"}}>
+            <div style={{marginBottom:16}}>
+              <label style={{color:"#aaa",fontSize:11,fontWeight:700,display:"block",marginBottom:6,letterSpacing:0.5}}>部位</label>
+              <div style={{position:"relative"}}>
+                <select value={selTab} onChange={e=>{const t=e.target.value;setSelTab(t);setExercise("");setCustomMode(false);setCustomInput("");setWeight(DEFAULT_WEIGHT[t]||60);setIsBodyweight(false);}} style={{width:"100%",appearance:"none",WebkitAppearance:"none",background:"#f7f7f7",border:"1.5px solid #ebebeb",borderRadius:14,padding:"13px 40px 13px 16px",color:"#111",fontSize:16,fontWeight:800,outline:"none",cursor:"pointer"}}>
+                  {TABS.map(t=><option key={t} value={t}>{t}</option>)}
+                </select>
+                <div style={{position:"absolute",right:14,top:"50%",transform:"translateY(-50%)",pointerEvents:"none"}}>{Ic.chevDown()}</div>
+              </div>
+            </div>
+            <label style={{color:"#aaa",fontSize:11,fontWeight:700,display:"block",marginBottom:8,letterSpacing:0.5}}>種目</label>
+            <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:14}}>
+              {exList.map(ex=>(
+                <button key={ex} onClick={()=>{setExercise(ex);setCustomMode(false);setCustomInput("");}} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"15px 18px",borderRadius:14,border:"none",cursor:"pointer",background:exercise===ex&&!customMode?"#111":"#f7f7f7",color:exercise===ex&&!customMode?"#fff":"#333",fontWeight:800,fontSize:15,textAlign:"left",transition:"all 0.18s",boxShadow:exercise===ex&&!customMode?"0 4px 14px rgba(0,0,0,0.12)":"none"}}>
+                  <span>{ex}</span>{exercise===ex&&!customMode&&Ic.check()}
+                </button>
+              ))}
+            </div>
+            <div style={{borderTop:"1.5px solid #f2f2f2",paddingTop:14}}>
+              <label style={{color:"#aaa",fontSize:11,fontWeight:700,display:"block",marginBottom:8,letterSpacing:0.5}}>その他（追加すると次から表示されます）</label>
+              <input value={customInput} onChange={e=>{setCustomInput(e.target.value);setCustomMode(true);setExercise("");}} placeholder="種目名を入力..." style={{...inp,background:customMode&&customInput?"#111":"#f7f7f7",color:customMode&&customInput?"#fff":"#111"}}/>
+            </div>
+          </div>
+        )}
+
+        {/* STEP 2: stats */}
+        {step===2&&(
+          <div style={{animation:"slideUp 0.25s ease"}}>
+            <div style={{background:"#f7f7f7",borderRadius:14,padding:"10px 14px",marginBottom:14,display:"flex",alignItems:"center",gap:8}}>
+              <span style={{background:"#111",color:"#fff",borderRadius:8,padding:"3px 10px",fontSize:12,fontWeight:800}}>{selTab}</span>
+              <span style={{fontWeight:800,fontSize:15}}>{chosenEx}</span>
+            </div>
+            {/* 使用重量 — 自重トグル付き */}
+            <div style={{marginBottom:10,background:"#f7f7f7",borderRadius:14,padding:"13px 14px"}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:isBodyweight?0:10}}>
+                <span style={{color:"#888",fontSize:14,fontWeight:700}}>使用重量</span>
+                <button onClick={()=>setIsBodyweight(b=>!b)} style={{background:isBodyweight?"#111":"#e5e5e5",color:isBodyweight?"#fff":"#888",border:"none",borderRadius:20,padding:"5px 14px",fontSize:12,fontWeight:800,cursor:"pointer",transition:"all 0.2s"}}>
+                  {isBodyweight?"自重 ✓":"自重"}
+                </button>
+              </div>
+              {!isBodyweight&&<Counter value={weight} onChange={setWeight} min={0} max={500} step={2.5} unit="kg"/>}
+            </div>
+            {[{label:"レップ数",value:reps,onChange:setReps,min:1,max:100,step:1,unit:"回"},{label:"セット数",value:sets,onChange:setSets,min:1,max:20,step:1,unit:"セット"}].map(({label,...p})=>(
+              <div key={label} style={{marginBottom:10,background:"#f7f7f7",borderRadius:14,padding:"13px 14px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                <span style={{color:"#888",fontSize:14,fontWeight:700}}>{label}</span><Counter {...p}/>
+              </div>
+            ))}
+            <div style={{display:"flex",gap:8,marginTop:16,marginBottom:16}}>
+              {ratio&&<div style={{flex:1,background:ratio.bg,border:`1.5px solid ${ratio.border}`,borderRadius:14,padding:"12px 14px"}}><div style={{fontSize:10,color:ratio.text,fontWeight:700,marginBottom:4}}>体重比</div><div style={{color:ratio.val,fontFamily:"'DM Mono',monospace",fontWeight:800,fontSize:20}}>{ratio.ratio}<span style={{fontSize:11,marginLeft:1}}>x</span></div><div style={{color:ratio.text,fontSize:11,fontWeight:700,marginTop:2}}>{ratio.level}</div></div>}
+              {rm&&<div style={{flex:1,background:"#eff6ff",border:"1.5px solid #bfdbfe",borderRadius:14,padding:"12px 14px"}}><div style={{fontSize:10,color:"#2563eb",fontWeight:700,marginBottom:4}}>推定1RM</div><div style={{color:"#1e3a8a",fontFamily:"'DM Mono',monospace",fontWeight:800,fontSize:20}}>{rm}<span style={{fontSize:11,marginLeft:1}}>kg</span></div><div style={{color:"#2563eb",fontSize:11,fontWeight:700,marginTop:2}}>Epley式</div></div>}
+            </div>
+            <label style={{color:"#aaa",fontSize:11,fontWeight:700,display:"block",marginBottom:6}}>一言コメント（任意）</label>
+            <textarea value={comment} onChange={e=>setComment(e.target.value)} placeholder="気になる点や質問を書いてください..." rows={3} style={{...inp,lineHeight:1.8}}/>
+          </div>
+        )}
+
+        {/* STEP 3: confirm */}
+        {step===3&&(
+          <div style={{animation:"slideUp 0.25s ease"}}>
+            <div style={{background:"#f7f7f7",borderRadius:20,padding:20,marginBottom:16}}>
+              <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
+                <div style={{width:46,height:46,borderRadius:"50%",background:"#ebebeb",display:"flex",alignItems:"center",justifyContent:"center",fontSize:24}}>{profile.avatar||"🐨"}</div>
+                <div><div style={{fontWeight:800,fontSize:15}}>{profile.name||"あなた"}</div><div style={{color:"#aaa",fontSize:12,fontWeight:600}}>{selTab} · {chosenEx||"未選択"}</div></div>
+              </div>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                {[["重量",`${weight}kg`],["レップ",`${reps}回`],["セット",`${sets}セット`]].map(([l,v])=>(
+                  <div key={l} style={{background:"#fff",borderRadius:10,padding:"6px 12px",border:"1.5px solid #ebebeb"}}><div style={{fontSize:9,color:"#aaa",fontWeight:700}}>{l}</div><div style={{fontSize:13,color:"#111",fontWeight:800,fontFamily:"'DM Mono',monospace"}}>{v}</div></div>
+                ))}
+                {ratio&&<div style={{background:ratio.bg,borderRadius:10,padding:"6px 12px",border:`1.5px solid ${ratio.border}`}}><div style={{fontSize:9,color:ratio.text,fontWeight:700}}>体重比</div><div style={{fontSize:13,color:ratio.val,fontWeight:800,fontFamily:"'DM Mono',monospace"}}>{ratio.ratio}x</div></div>}
+                {rm&&<div style={{background:"#eff6ff",borderRadius:10,padding:"6px 12px",border:"1.5px solid #bfdbfe"}}><div style={{fontSize:9,color:"#2563eb",fontWeight:700}}>1RM</div><div style={{fontSize:13,color:"#1e3a8a",fontWeight:800,fontFamily:"'DM Mono',monospace"}}>{rm}kg</div></div>}
+              </div>
+              {comment&&<div style={{marginTop:12,color:"#555",fontSize:13,lineHeight:1.7,fontWeight:600}}>{comment}</div>}
+            </div>
+            {previewUrl&&(
+              <div style={{position:"relative",borderRadius:16,overflow:"hidden",marginBottom:8,background:"#111"}}>
+                <video src={previewUrl} style={{width:"100%",borderRadius:16,maxHeight:200,objectFit:"cover",display:"block"}} muted playsInline/>
+                {overlayIcons.map((ic,i)=>(
+                  <div key={i} style={{position:"absolute",left:`${ic.x}%`,top:`${ic.y}%`,fontSize:ic.size,transform:"translate(-50%,-50%)",pointerEvents:"none",filter:"drop-shadow(0 2px 4px rgba(0,0,0,0.5))"}}>{ic.icon}</div>
+                ))}
+              </div>
+            )}
+            <div style={{background:"#f7f7f7",borderRadius:16,padding:14,display:"flex",alignItems:"center",gap:12}}>
+              <div style={{fontSize:24}}>🎬</div>
+              <div>
+                <div style={{color:"#555",fontSize:13,fontWeight:700}}>動画準備完了</div>
+                {overlayIcons.length>0&&<div style={{color:"#aaa",fontSize:12,fontWeight:600,marginTop:2}}>顔隠しアイコン {overlayIcons.length}個配置済み</div>}
+              </div>
+            </div>
+            {uploadErr&&<div style={{marginTop:10,color:"#e11d48",fontSize:13,fontWeight:700,textAlign:"center"}}>{uploadErr}</div>}
+          </div>
+        )}
+      </div>
+
+      <div style={{padding:"12px 16px 36px",background:"#fff",borderTop:"1.5px solid #f2f2f2",display:"flex",gap:10}}>
+        {step>0&&!uploading&&<button onClick={()=>setStep(s=>s-1)} style={{flex:1,height:52,borderRadius:16,border:"1.5px solid #ebebeb",background:"#f7f7f7",color:"#555",fontSize:15,cursor:"pointer",fontWeight:700}}>もどる</button>}
+        <button onClick={handleNext} disabled={!canNext||uploading} style={{flex:2,height:52,borderRadius:16,border:"none",background:canNext&&!uploading?"#111":"#ddd",color:canNext&&!uploading?"#fff":"#aaa",fontSize:16,fontWeight:800,cursor:canNext&&!uploading?"pointer":"default",transition:"all 0.2s"}}>
+          {uploading?"アップロード中...":(step<3?"つぎへ →":"投稿する 🚀")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ── Main App ── */
+/* ── Login Screen ── */
+function LoginScreen({onAuth}){
+  const [mode,setMode]=useState("login");
+  const [email,setEmail]=useState("");
+  const [password,setPassword]=useState("");
+  const [loading,setLoading]=useState(false);
+  const [err,setErr]=useState("");
+  const [msg,setMsg]=useState("");
+  const inp={width:"100%",background:"#f7f7f7",border:"1.5px solid #ebebeb",borderRadius:14,padding:"13px 16px",color:"#111",fontSize:15,outline:"none",fontFamily:"inherit",fontWeight:600,marginBottom:10};
+  const handle=async()=>{
+    if(!email||!password){setErr("メールとパスワードを入力してください");return;}
+    setLoading(true);setErr("");setMsg("");
+    try{
+      if(mode==="signup"){
+        const {error}=await supabase.auth.signUp({email,password});
+        if(error)throw error;
+        setMsg("確認メールを送りました。メールを確認してください。");
+      }else{
+        const {data,error}=await supabase.auth.signInWithPassword({email,password});
+        if(error)throw error;
+        onAuth(data.user);
+      }
+    }catch(e){setErr(e.message==="Invalid login credentials"?"メールまたはパスワードが違います":e.message);}
+    setLoading(false);
+  };
+  return(
+    <div style={{width:"100%",height:"100dvh",background:"#fff",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"0 32px",maxWidth:480,margin:"0 auto"}}>
+      <div style={{marginBottom:40,textAlign:"center"}}>
+        <div style={{fontSize:52,marginBottom:8}}>💪</div>
+        <div style={{fontSize:30,fontWeight:900,letterSpacing:-1}}>Formie</div>
+        <div style={{color:"#aaa",fontSize:14,fontWeight:600,marginTop:6}}>フォームを共有して、一緒に上手くなろう</div>
+      </div>
+      <div style={{width:"100%"}}>
+        <input value={email} onChange={e=>setEmail(e.target.value)} placeholder="メールアドレス" type="email" style={inp}/>
+        <input value={password} onChange={e=>setPassword(e.target.value)} placeholder="パスワード（6文字以上）" type="password" style={inp}/>
+        {err&&<div style={{color:"#e11d48",fontSize:13,fontWeight:700,marginBottom:10,textAlign:"center"}}>{err}</div>}
+        {msg&&<div style={{color:"#16a34a",fontSize:13,fontWeight:700,marginBottom:10,textAlign:"center"}}>{msg}</div>}
+        <button onClick={handle} disabled={loading} style={{width:"100%",height:52,borderRadius:16,border:"none",background:loading?"#ddd":"#111",color:loading?"#aaa":"#fff",fontSize:16,fontWeight:800,cursor:loading?"default":"pointer",marginBottom:12,transition:"all 0.2s"}}>
+          {loading?"...":(mode==="login"?"ログイン":"アカウント作成")}
+        </button>
+        <button onClick={()=>{setMode(m=>m==="login"?"signup":"login");setErr("");setMsg("");}} style={{width:"100%",height:44,borderRadius:14,border:"1.5px solid #ebebeb",background:"#f7f7f7",color:"#555",fontSize:14,fontWeight:700,cursor:"pointer"}}>
+          {mode==="login"?"アカウントをお持ちでない方はこちら":"ログインはこちら"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ── Main App ── */
+function App(){
+  const [authUser,setAuthUser]=useState(null);
+  const [authLoading,setAuthLoading]=useState(true);
+  const [activeTab,setActiveTab]=useState("肩");
+  const [page,setPage]=useState("feed");
+  const [editOpen,setEditOpen]=useState(false);
+  const [posts,setPosts]=useState([]);
+  const [postsLoading,setPostsLoading]=useState(false);
+  const [myPosts,setMyPosts]=useState([]);
+  const [currentIndex,setCurrentIndex]=useState(0);
+  const [showModal,setShowModal]=useState(false);
+  const [commentPost,setCommentPost]=useState(null);
+  const [detailPost,setDetailPost]=useState(null);
+  const [profile,setProfile]=useState({name:"",weight:70,height:170,avatar:"🐨"});
+  const [exercises,setExercises]=useState(()=>{
+    try{
+      const saved=localStorage.getItem("formie_exercises");
+      if(saved){
+        const parsed=JSON.parse(saved);
+        const merged={};
+        Object.keys(DEFAULT_EXERCISES).forEach(tab=>{
+          const def=DEFAULT_EXERCISES[tab];
+          const cust=parsed[tab]||[];
+          const extras=cust.filter(e=>!def.includes(e));
+          merged[tab]=[...def,...extras];
+        });
+        return merged;
+      }
+    }catch(e){}
+    return {...DEFAULT_EXERCISES};
+  });
+  const containerRef=useRef(null);
+  const startY=useRef(null);
+  const locked=useRef(false);
+  const authUserRef=useRef(null);
+  useEffect(()=>{authUserRef.current=authUser;},[authUser]);
+
+  useEffect(()=>{
+    supabase.auth.getSession().then(({data:{session}})=>{setAuthUser(session?.user||null);setAuthLoading(false);});
+    const {data:{subscription}}=supabase.auth.onAuthStateChange((_,session)=>{setAuthUser(session?.user||null);});
+    return()=>subscription.unsubscribe();
+  },[]);
+
+  useEffect(()=>{
+    if(!authUser)return;
+    fetchProfile(authUser.id).then(p=>{if(p)setProfile({name:p.name||"",weight:p.weight||70,height:p.height||170,avatar:p.avatar||"🐨"});});
+    fetchMyPosts(authUser.id).then(setMyPosts);
+  },[authUser]);
+
+  useEffect(()=>{
+    if(!authUser) return;
+    if(page==="profile") fetchMyPosts(authUser.id).then(setMyPosts);
+  },[page]);
+
+  useEffect(()=>{
+    setPostsLoading(true);setCurrentIndex(0);
+    fetchPosts(activeTab).then(data=>{setPosts(data);setPostsLoading(false);});
+  },[activeTab]);
+
+
+
+  const [animated,setAnimated]=useState(true);
+  const advanceSlide=useCallback(()=>{
+    if(!posts.length) return;
+    if(currentIndex>=posts.length-1){
+      // jump to index 0 instantly (no animation), then allow next swipe
+      setAnimated(false);
+      setCurrentIndex(0);
+      setTimeout(()=>setAnimated(true),50);
+    } else {
+      setAnimated(true);
+      setCurrentIndex(i=>i+1);
+    }
+  },[currentIndex,posts.length]);
+
+  const onTouchStart=e=>{startY.current=e.touches[0].clientY;};
+  const onTouchEnd=e=>{
+    const dy=startY.current-e.changedTouches[0].clientY;
+    if(dy>50) advanceSlide();
+  };
+  useEffect(()=>{
+    const h=e=>{
+      e.preventDefault();
+      if(locked.current)return;
+      locked.current=true;
+      if(e.deltaY>30) advanceSlide();
+      setTimeout(()=>{locked.current=false;},700);
+    };
+    const el=containerRef.current;
+    if(el)el.addEventListener("wheel",h,{passive:false});
+    return()=>{if(el)el.removeEventListener("wheel",h);};
+  },[advanceSlide]);
+
+  const addComment=(postId,text)=>{
+    const c={user:profile.name||"あなた",avatar:profile.avatar||"🐨",text,time:"今",replies:[]};
+    setPosts(prev=>prev.map(p=>p.id===postId?{...p,comments:[...p.comments,c]}:p));
+    setMyPosts(prev=>prev.map(p=>p.id===postId?{...p,comments:[...p.comments,c]}:p));
+    setCommentPost(prev=>prev?{...prev,comments:[...prev.comments,c]}:null);
+  };
+  const addPost=async(data)=>{
+    if(!authUser)return;
+    // savePostはPostModal側で実施済み。ここではフィードを再取得するだけ
+    fetchPosts(activeTab).then(setPosts);
+    fetchMyPosts(authUser.id).then(setMyPosts);
+    setCurrentIndex(0);
+  };
+  const handleSaveProfile=async(p)=>{
+    setProfile(p);
+    if(authUser) await upsertProfile(authUser.id,p);
+  };
+  const addExercise=(tab,name)=>setExercises(prev=>{
+    const next={...prev,[tab]:[...(prev[tab]||[]),name]};
+    try{localStorage.setItem("formie_exercises",JSON.stringify(next));}catch(e){}
+    return next;
+  });
+
+  const deletePost=(postId)=>{
+    setPosts(prev=>prev.filter(p=>p.id!==postId));
+    setMyPosts(prev=>prev.filter(p=>p.id!==postId));
+    setDetailPost(null);
+  };
+  const TAB_H=68;
+
+  if(authLoading)return(
+    <div style={{width:"100%",height:"100dvh",display:"flex",alignItems:"center",justifyContent:"center",background:"#fff"}}>
+      <div style={{textAlign:"center"}}><div style={{fontSize:48,marginBottom:12}}>💪</div><div style={{color:"#bbb",fontSize:14,fontWeight:700}}>読み込み中...</div></div>
+    </div>
+  );
+
+  if(!authUser)return <LoginScreen onAuth={u=>setAuthUser(u)}/>;
+
+  return(
+    <div style={{width:"100%",height:"100dvh",background:"#fff",display:"flex",flexDirection:"column",overflow:"hidden",position:"relative"}}>
+
+      {page==="feed"&&!editOpen&&(
+        <>
+          <div style={{position:"absolute",top:0,left:0,right:0,zIndex:100,padding:"12px 12px 0",background:"rgba(255,255,255,0.93)",backdropFilter:"blur(12px)"}}>
+            <div style={{display:"flex",gap:4}}>
+              {TABS.map(t=><button key={t} onClick={()=>setActiveTab(t)} style={{flex:1,padding:"8px 0",borderRadius:10,border:"none",cursor:"pointer",fontSize:13,fontWeight:800,transition:"all 0.18s",background:activeTab===t?"#111":"transparent",color:activeTab===t?"#fff":"#bbb"}}>{t}</button>)}
+            </div>
+            <div style={{height:1,background:"#f2f2f2",marginTop:8}}/>
+          </div>
+          <div ref={containerRef} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} style={{flex:1,overflow:"hidden",position:"relative",marginTop:56,marginBottom:TAB_H}}>
+            {postsLoading?(
+              <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100%",color:"#bbb",flexDirection:"column",gap:12}}>
+                <div style={{fontSize:40}}>⏳</div><div style={{fontSize:14,fontWeight:700}}>読み込み中...</div>
+              </div>
+            ):posts.length===0?(
+              <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100%",flexDirection:"column",gap:12}}>
+                <div style={{fontSize:52}}>📭</div><div style={{fontSize:15,fontWeight:700,color:"#bbb"}}>まだ投稿がありません</div>
+              </div>
+            ):(
+              <div style={{height:"100%",transition:animated?"transform 0.4s cubic-bezier(0.25,0.46,0.45,0.94)":"none",transform:`translateY(-${currentIndex*100}%)`}}>
+                {posts.map((post,i)=>(
+                  <div key={post.id} data-slide="1" style={{height:"100%",width:"100%"}}>
+                    <VideoSlide post={post} isFirst={i===0&&currentIndex===0} onCommentOpen={(onAdd)=>setCommentPost({post,onAdd})} authUser={authUser} onDelete={deletePost}/>
+                  </div>
+                ))}
+              </div>
+            )}
+            {/* 次の1〜2本を裏で先読み */}
+            <div style={{display:"none"}}>
+              {[1,2].map(offset=>{
+                const p=posts[currentIndex+offset];
+                return p?.videoUrl?<video key={p.id} src={p.videoUrl} preload="auto" muted playsInline/>:null;
+              })}
+            </div>
+          </div>
+          {posts.length>1&&(
+            <div style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",display:"flex",flexDirection:"column",gap:5,zIndex:50}}>
+              {posts.map((_,i)=><div key={i} style={{width:3,height:i===currentIndex%posts.length?18:5,borderRadius:2,background:i===currentIndex%posts.length?"#111":"#ddd",transition:"all 0.3s"}}/>)}
+            </div>
+          )}
+        </>
+      )}
+
+      {page==="profile"&&!editOpen&&(
+        <div style={{flex:1,overflow:"hidden",marginBottom:TAB_H}}>
+          <ProfileScreen profile={profile} myPosts={myPosts} onEditOpen={()=>setEditOpen(true)} onPostTap={p=>setDetailPost(p)} onLogout={async()=>{await supabase.auth.signOut();setAuthUser(null);}} authUser={authUser}/>
+        </div>
+      )}
+
+      {editOpen&&(
+        <div style={{position:"absolute",inset:0,zIndex:200,background:"#fff",marginBottom:TAB_H}}>
+          <EditProfileScreen profile={profile} onSave={handleSaveProfile} onBack={()=>setEditOpen(false)}/>
+        </div>
+      )}
+
+      <div style={{position:"absolute",bottom:0,left:0,right:0,height:TAB_H,background:"rgba(255,255,255,0.96)",backdropFilter:"blur(16px)",borderTop:"1.5px solid #f2f2f2",display:"flex",alignItems:"center",zIndex:100}}>
+        <button onClick={()=>{setPage("feed");setEditOpen(false);}} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:3,background:"none",border:"none",cursor:"pointer",height:"100%"}}>
+          {Ic.home(page==="feed")}<span style={{fontSize:10,fontWeight:800,color:page==="feed"?"#111":"#bbb"}}>ホーム</span>
+        </button>
+        <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <button onClick={()=>setShowModal(true)} style={{width:52,height:52,borderRadius:"50%",background:"#111",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 4px 16px rgba(0,0,0,0.18)"}}>
+            {Ic.plus()}
+          </button>
+        </div>
+        <button onClick={()=>{setPage("profile");setEditOpen(false);}} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:3,background:"none",border:"none",cursor:"pointer",height:"100%"}}>
+          {Ic.user(page==="profile")}<span style={{fontSize:10,fontWeight:800,color:page==="profile"?"#111":"#bbb"}}>マイページ</span>
+        </button>
+      </div>
+
+      {commentPost&&<CommentsSheet post={commentPost.post} onClose={()=>setCommentPost(null)} onAdd={t=>{addComment(commentPost.post.id,t);commentPost.onAdd&&commentPost.onAdd();}} profile={profile} authUser={authUser}/>}
+      {detailPost&&<PostDetail post={detailPost} onClose={()=>setDetailPost(null)} profile={profile} onComment={addComment} onDelete={deletePost} authUser={authUser}/>}
+      {showModal&&<PostModal onClose={()=>setShowModal(false)} onPost={addPost} profile={profile} exercises={exercises} onAddExercise={addExercise} authUserRef={authUserRef}/>}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
