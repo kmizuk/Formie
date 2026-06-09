@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>プライバシーポリシー — Formie</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Noto+Sans+JP:wght@400;700;900&family=DM+Mono:wght@500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --black: #080808;
+  --white: #f4f4f0;
+  --accent: #c8f135;
+  --gray: #141414;
+  --mid: #1e1e1e;
+  --muted: #888;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+html { scroll-behavior:smooth; }
+body {
+  background: var(--black);
+  color: var(--white);
+  font-family: 'Noto Sans JP', sans-serif;
+  overflow-x: hidden;
+}
+
+/* NAV */
+nav {
+  position:fixed; top:0; left:0; right:0; z-index:100;
+  display:flex; align-items:center; justify-content:space-between;
+  padding:18px 40px;
+  background:rgba(8,8,8,0.92);
+  backdrop-filter:blur(20px);
+  border-bottom:1px solid rgba(255,255,255,0.05);
+}
+.logo {
+  font-family:'Bebas Neue',sans-serif;
+  font-size:26px; letter-spacing:4px; color:var(--white);
+  text-decoration:none;
+}
+.logo em { color:var(--accent); font-style:normal; }
+.nav-btn {
+  background:var(--accent); color:var(--black);
+  border:none; border-radius:50px; padding:10px 22px;
+  font-size:13px; font-weight:700;
+  font-family:'Noto Sans JP',sans-serif;
+  cursor:pointer; transition:all 0.2s;
+  text-decoration:none; display:inline-block;
+}
+.nav-btn:hover { transform:scale(1.04); }
+
+/* HERO */
+.page-hero {
+  padding: 140px 24px 60px;
+  text-align:center;
+  position:relative;
+}
+.page-hero::before {
+  content:'';
+  position:absolute; top:-100px; left:50%; transform:translateX(-50%);
+  width:800px; height:600px;
+  background:radial-gradient(circle, rgba(200,241,53,0.05) 0%, transparent 65%);
+  pointer-events:none;
+}
+.page-badge {
+  display:inline-flex; align-items:center; gap:8px;
+  background:rgba(200,241,53,0.1); border:1px solid rgba(200,241,53,0.3);
+  border-radius:50px; padding:7px 18px;
+  font-size:11px; font-weight:700; color:var(--accent);
+  letter-spacing:2px; margin-bottom:24px;
+}
+.page-title {
+  font-family:'Bebas Neue',sans-serif;
+  font-size:clamp(48px,10vw,96px);
+  line-height:0.95; letter-spacing:2px;
+  color:#ffffff; margin-bottom:16px;
+}
+.page-title em { color:var(--accent); font-style:normal; }
+.page-date {
+  color:var(--muted); font-size:13px; font-weight:400;
+}
+
+/* CONTENT */
+.content {
+  max-width:760px;
+  margin:0 auto;
+  padding:64px 24px 120px;
+}
+.section {
+  margin-bottom:56px;
+}
+.section-num {
+  font-family:'DM Mono',monospace;
+  font-size:11px; color:var(--accent);
+  letter-spacing:2px; margin-bottom:10px;
+}
+.section-title {
+  font-size:20px; font-weight:900;
+  color:var(--white); margin-bottom:16px;
+  line-height:1.4;
+}
+.section-body {
+  font-size:15px; line-height:2;
+  color:#aaa; font-weight:400;
+}
+.section-body strong { color:#ddd; font-weight:700; }
+.section-body ul {
+  list-style:none; margin:12px 0;
+  display:flex; flex-direction:column; gap:8px;
+}
+.section-body ul li {
+  padding-left:20px; position:relative;
+}
+.section-body ul li::before {
+  content:'—';
+  position:absolute; left:0;
+  color:var(--accent); font-weight:700;
+}
+
+/* DIVIDER */
+.divider {
+  height:1px;
+  background:linear-gradient(90deg, transparent, rgba(200,241,53,0.2), transparent);
+  margin:56px 0;
+}
+
+/* CONTACT BOX */
+.contact-box {
+  background:var(--mid);
+  border:1px solid rgba(255,255,255,0.07);
+  border-radius:20px;
+  padding:32px;
+  margin-top:16px;
+}
+.contact-box p {
+  font-size:14px; line-height:2; color:#888;
+}
+.contact-box strong { color:#ccc; font-weight:700; }
+
+/* FOOTER */
+footer {
+  border-top:1px solid rgba(255,255,255,0.05);
+  padding:40px 24px;
+  text-align:center;
+}
+.footer-logo {
+  font-family:'Bebas Neue',sans-serif;
+  font-size:22px; letter-spacing:4px; color:#333;
+  margin-bottom:12px;
+}
+.footer-logo em { color:#555; font-style:normal; }
+.footer-links {
+  display:flex; gap:24px; justify-content:center;
+  margin-bottom:16px;
+  flex-wrap:wrap;
+}
+.footer-links a {
+  color:#444; font-size:12px; text-decoration:none; font-weight:700;
+  transition:color 0.2s;
+}
+.footer-links a:hover { color:var(--accent); }
+.footer-copy {
+  color:#333; font-size:11px;
+}
+
+@media(max-width:600px) {
+  nav { padding:16px 20px; }
+  .content { padding:48px 20px 80px; }
+}
+</style>
+</head>
+<body>
+
+<nav>
+  <a href="formie-teaser.html" class="logo">FORM<em>IE</em></a>
+  <a href="https://formie-alpha.vercel.app" class="nav-btn">今すぐ使う</a>
+</nav>
+
+<div class="page-hero">
+  <div class="page-badge">LEGAL</div>
+  <div class="page-title">PRIVACY<br><em>POLICY</em></div>
+  <p class="page-date">最終更新日：2026年6月10日</p>
+</div>
+
+<div class="content">
+
+  <div class="section">
+    <div class="section-num">OVERVIEW</div>
+    <div class="section-title">はじめに</div>
+    <div class="section-body">
+      株式会社Uplift（以下「当社」）は、Formie（以下「本アプリ」）におけるユーザーの個人情報の取り扱いについて、以下のとおりプライバシーポリシーを定めます。本アプリをご利用いただくことで、本ポリシーに同意いただいたものとみなします。
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="section">
+    <div class="section-num">01</div>
+    <div class="section-title">収集する情報</div>
+    <div class="section-body">
+      本アプリは以下の情報を収集します。
+      <ul>
+        <li><strong>アカウント情報：</strong>メールアドレス、パスワード（暗号化して保存）</li>
+        <li><strong>プロフィール情報：</strong>ニックネーム、アバター（絵文字）、体重、身長</li>
+        <li><strong>ユーザーコンテンツ：</strong>投稿した動画、コメント、いいね情報</li>
+        <li><strong>利用情報：</strong>フォロー・フォロワー関係、トレーニング記録（重量・レップ数・セット数）</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="section">
+    <div class="section-num">02</div>
+    <div class="section-title">情報の利用目的</div>
+    <div class="section-body">
+      収集した情報は以下の目的で利用します。
+      <ul>
+        <li>本アプリのサービス提供・機能の実現</li>
+        <li>アカウントの認証・管理</li>
+        <li>ユーザー間のコミュニケーション機能の提供</li>
+        <li>サービスの改善・新機能の開発</li>
+        <li>不正利用の防止・セキュリティの確保</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="section">
+    <div class="section-num">03</div>
+    <div class="section-title">情報の第三者提供</div>
+    <div class="section-body">
+      当社は、以下の場合を除き、ユーザーの個人情報を第三者に提供しません。
+      <ul>
+        <li>ユーザーの同意がある場合</li>
+        <li>法令に基づく場合</li>
+        <li>人の生命・身体・財産の保護に必要な場合</li>
+        <li>公衆衛生の向上または児童の健全な育成に必要な場合</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="section">
+    <div class="section-num">04</div>
+    <div class="section-title">利用するサービス</div>
+    <div class="section-body">
+      本アプリは以下のサードパーティサービスを利用します。これらのサービスは独自のプライバシーポリシーに基づきデータを処理します。
+      <ul>
+        <li><strong>Supabase：</strong>データベース・認証・ストレージ（米国）</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="section">
+    <div class="section-num">05</div>
+    <div class="section-title">データの保管</div>
+    <div class="section-body">
+      収集したデータはSupabaseのサーバー（米国）に保管されます。当社は適切なセキュリティ措置を講じてデータを保護します。ユーザーが投稿した動画はSupabase Storageに保存されます。
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="section">
+    <div class="section-num">06</div>
+    <div class="section-title">ユーザーの権利</div>
+    <div class="section-body">
+      ユーザーは以下の権利を有します。
+      <ul>
+        <li>保有する個人情報の開示・訂正・削除の請求</li>
+        <li>アカウントの削除（アプリ内またはお問い合わせにて対応）</li>
+        <li>個人情報の利用停止の請求</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="section">
+    <div class="section-num">07</div>
+    <div class="section-title">未成年者について</div>
+    <div class="section-body">
+      本アプリは12歳未満の方の利用を想定していません。12歳未満の方の個人情報を意図的に収集することはありません。保護者の方が12歳未満のお子様が本アプリを利用していることを発見した場合は、お問い合わせよりご連絡ください。
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="section">
+    <div class="section-num">08</div>
+    <div class="section-title">トラッキングについて</div>
+    <div class="section-body">
+      本アプリは広告目的のトラッキングを行いません。サービス提供に必要な認証情報のみをデバイスに保存します。
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="section">
+    <div class="section-num">09</div>
+    <div class="section-title">ポリシーの変更</div>
+    <div class="section-body">
+      本ポリシーを変更する場合は、本ページにて更新日を明示の上、公開します。重要な変更については、アプリ内またはメールにてお知らせします。
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="section">
+    <div class="section-num">CONTACT</div>
+    <div class="section-title">お問い合わせ</div>
+    <div class="section-body">個人情報の取り扱いに関するお問い合わせは以下までご連絡ください。</div>
+    <div class="contact-box">
+      <p>
+        <strong>株式会社Uplift</strong><br>
+        <a href="https://uplift-inc.studio.site/" target="_blank" style="color:var(--accent);text-decoration:none;font-weight:700;">uplift-inc.studio.site</a>
+      </p>
+    </div>
+  </div>
+
+</div>
+
+<footer>
+  <div class="footer-logo">FORM<em>IE</em></div>
+  <div class="footer-links">
+    <a href="formie-teaser.html">ホーム</a>
+    <a href="formie-privacy.html">プライバシーポリシー</a>
+    <a href="formie-terms.html">利用規約</a>
+    <a href="https://formie-alpha.vercel.app">アプリを使う</a>
+  </div>
+  <div class="footer-copy">© 2026 株式会社Uplift. All rights reserved.</div>
+</footer>
+
+</body>
+</html>

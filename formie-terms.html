@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>利用規約 — Formie</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Noto+Sans+JP:wght@400;700;900&family=DM+Mono:wght@500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --black: #080808;
+  --white: #f4f4f0;
+  --accent: #c8f135;
+  --gray: #141414;
+  --mid: #1e1e1e;
+  --muted: #888;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+html { scroll-behavior:smooth; }
+body {
+  background: var(--black);
+  color: var(--white);
+  font-family: 'Noto Sans JP', sans-serif;
+  overflow-x: hidden;
+}
+
+/* NAV */
+nav {
+  position:fixed; top:0; left:0; right:0; z-index:100;
+  display:flex; align-items:center; justify-content:space-between;
+  padding:18px 40px;
+  background:rgba(8,8,8,0.92);
+  backdrop-filter:blur(20px);
+  border-bottom:1px solid rgba(255,255,255,0.05);
+}
+.logo {
+  font-family:'Bebas Neue',sans-serif;
+  font-size:26px; letter-spacing:4px; color:var(--white);
+  text-decoration:none;
+}
+.logo em { color:var(--accent); font-style:normal; }
+.nav-btn {
+  background:var(--accent); color:var(--black);
+  border:none; border-radius:50px; padding:10px 22px;
+  font-size:13px; font-weight:700;
+  font-family:'Noto Sans JP',sans-serif;
+  cursor:pointer; transition:all 0.2s;
+  text-decoration:none; display:inline-block;
+}
+.nav-btn:hover { transform:scale(1.04); }
+
+/* HERO */
+.page-hero {
+  padding: 140px 24px 60px;
+  text-align:center;
+  position:relative;
+}
+.page-hero::before {
+  content:'';
+  position:absolute; top:-100px; left:50%; transform:translateX(-50%);
+  width:800px; height:600px;
+  background:radial-gradient(circle, rgba(200,241,53,0.05) 0%, transparent 65%);
+  pointer-events:none;
+}
+.page-badge {
+  display:inline-flex; align-items:center; gap:8px;
+  background:rgba(200,241,53,0.1); border:1px solid rgba(200,241,53,0.3);
+  border-radius:50px; padding:7px 18px;
+  font-size:11px; font-weight:700; color:var(--accent);
+  letter-spacing:2px; margin-bottom:24px;
+}
+.page-title {
+  font-family:'Bebas Neue',sans-serif;
+  font-size:clamp(48px,10vw,96px);
+  line-height:0.95; letter-spacing:2px;
+  color:#ffffff; margin-bottom:16px;
+}
+.page-title em { color:var(--accent); font-style:normal; }
+.page-date {
+  color:var(--muted); font-size:13px; font-weight:400;
+}
+
+/* CONTENT */
+.content {
+  max-width:760px;
+  margin:0 auto;
+  padding:64px 24px 120px;
+}
+.section {
+  margin-bottom:56px;
+}
+.section-num {
+  font-family:'DM Mono',monospace;
+  font-size:11px; color:var(--accent);
+  letter-spacing:2px; margin-bottom:10px;
+}
+.section-title {
+  font-size:20px; font-weight:900;
+  color:var(--white); margin-bottom:16px;
+  line-height:1.4;
+}
+.section-body {
+  font-size:15px; line-height:2;
+  color:#aaa; font-weight:400;
+}
+.section-body strong { color:#ddd; font-weight:700; }
+.section-body ul {
+  list-style:none; margin:12px 0;
+  display:flex; flex-direction:column; gap:8px;
+}
+.section-body ul li {
+  padding-left:20px; position:relative;
+}
+.section-body ul li::before {
+  content:'—';
+  position:absolute; left:0;
+  color:var(--accent); font-weight:700;
+}
+
+/* DIVIDER */
+.divider {
+  height:1px;
+  background:linear-gradient(90deg, transparent, rgba(200,241,53,0.2), transparent);
+  margin:56px 0;
+}
+
+/* CONTACT BOX */
+.contact-box {
+  background:var(--mid);
+  border:1px solid rgba(255,255,255,0.07);
+  border-radius:20px;
+  padding:32px;
+  margin-top:16px;
+}
+.contact-box p {
+  font-size:14px; line-height:2; color:#888;
+}
+.contact-box strong { color:#ccc; font-weight:700; }
+
+/* FOOTER */
+footer {
+  border-top:1px solid rgba(255,255,255,0.05);
+  padding:40px 24px;
+  text-align:center;
+}
+.footer-logo {
+  font-family:'Bebas Neue',sans-serif;
+  font-size:22px; letter-spacing:4px; color:#333;
+  margin-bottom:12px;
+}
+.footer-logo em { color:#555; font-style:normal; }
+.footer-links {
+  display:flex; gap:24px; justify-content:center;
+  margin-bottom:16px;
+  flex-wrap:wrap;
+}
+.footer-links a {
+  color:#444; font-size:12px; text-decoration:none; font-weight:700;
+  transition:color 0.2s;
+}
+.footer-links a:hover { color:var(--accent); }
+.footer-copy {
+  color:#333; font-size:11px;
+}
+
+@media(max-width:600px) {
+  nav { padding:16px 20px; }
+  .content { padding:48px 20px 80px; }
+}
+</style>
+</head>
+<body>
+
+<nav>
+  <a href="formie-teaser.html" class="logo">FORM<em>IE</em></a>
+  <a href="https://formie-alpha.vercel.app" class="nav-btn">今すぐ使う</a>
+</nav>
+
+<div class="page-hero">
+  <div class="page-badge">LEGAL</div>
+  <div class="page-title">TERMS OF<br><em>SERVICE</em></div>
+  <p class="page-date">最終更新日：2026年6月10日</p>
+</div>
+
+<div class="content">
+
+  <div class="section">
+    <div class="section-num">OVERVIEW</div>
+    <div class="section-title">はじめに</div>
+    <div class="section-body">
+      本利用規約（以下「本規約」）は、株式会社Uplift（以下「当社」）が提供するFormie（以下「本サービス」）の利用条件を定めるものです。本サービスをご利用いただくことで、本規約に同意いただいたものとみなします。
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="section">
+    <div class="section-num">第1条</div>
+    <div class="section-title">適用</div>
+    <div class="section-body">
+      本規約は、ユーザーと当社との間の本サービスの利用に関わる一切の関係に適用されます。当社は本サービスに関し、本規約のほか、ご利用にあたってのルールを定めることがあります。これらの規定は本規約の一部を構成するものとします。
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="section">
+    <div class="section-num">第2条</div>
+    <div class="section-title">利用登録</div>
+    <div class="section-body">
+      本サービスの利用にはアカウント登録が必要です。登録にあたり、正確な情報を提供するものとします。<strong>12歳未満の方はご利用いただけません。</strong>当社は、以下に該当する場合、利用登録を拒否することがあります。
+      <ul>
+        <li>虚偽の情報を申請した場合</li>
+        <li>過去に本規約違反によりアカウント停止された場合</li>
+        <li>その他当社が不適切と判断した場合</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="section">
+    <div class="section-num">第3条</div>
+    <div class="section-title">禁止事項</div>
+    <div class="section-body">
+      ユーザーは以下の行為を行ってはなりません。
+      <ul>
+        <li>法令または公序良俗に違反する行為</li>
+        <li>他のユーザーへの嫌がらせ・誹謗中傷・脅迫</li>
+        <li>性的・暴力的・差別的なコンテンツの投稿</li>
+        <li>第三者の著作権・肖像権・プライバシーを侵害する行為</li>
+        <li>本サービスの運営を妨害する行為</li>
+        <li>営利目的の無断広告・勧誘行為</li>
+        <li>他者のアカウントへの不正アクセス</li>
+        <li>当社が不適切と判断するその他の行為</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="section">
+    <div class="section-num">第4条</div>
+    <div class="section-title">投稿コンテンツ</div>
+    <div class="section-body">
+      ユーザーが投稿したコンテンツ（動画・テキスト・画像等）の著作権はユーザーに帰属します。ただし、ユーザーは当社に対して、本サービスの運営・改善・プロモーションに必要な範囲で、当該コンテンツを無償・非独占的に利用する権利を許諾するものとします。<br><br>
+      当社は、禁止事項に違反するコンテンツを予告なく削除できるものとします。投稿されたトレーニング情報は医学的アドバイスではありません。トレーニングは自己責任で行ってください。
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="section">
+    <div class="section-num">第5条</div>
+    <div class="section-title">サービスの変更・停止</div>
+    <div class="section-body">
+      当社は、ユーザーへの事前通知なく、本サービスの内容を変更・停止・終了することができます。これによってユーザーに生じた損害について、当社の故意・重過失による場合を除き、責任を負いません。
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="section">
+    <div class="section-num">第6条</div>
+    <div class="section-title">免責事項</div>
+    <div class="section-body">
+      <ul>
+        <li>本サービスは現状有姿で提供され、特定目的への適合性を保証しません</li>
+        <li>ユーザー間のトラブルについて当社は責任を負いません</li>
+        <li>本サービスの利用によって生じた損害について、当社の故意・重過失による場合を除き責任を負いません</li>
+        <li>投稿されたトレーニング情報は医学的アドバイスではありません。トレーニングは自己責任で行ってください</li>
+        <li>ネットワーク障害・システム障害等による損害について責任を負いません</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="section">
+    <div class="section-num">第7条</div>
+    <div class="section-title">アカウント停止・削除</div>
+    <div class="section-body">
+      当社は、ユーザーが本規約に違反した場合、予告なくアカウントを停止・削除できます。また、長期間利用されていないアカウントについても、事前通知の上、削除することがあります。
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="section">
+    <div class="section-num">第8条</div>
+    <div class="section-title">規約の変更</div>
+    <div class="section-body">
+      当社は必要に応じて本規約を変更できます。変更後の規約は本サービス上での掲示をもって効力を生じます。重要な変更については、アプリ内またはメールにてお知らせします。変更後も本サービスを利用し続けることで、変更に同意したものとみなします。
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="section">
+    <div class="section-num">第9条</div>
+    <div class="section-title">準拠法・管轄</div>
+    <div class="section-body">
+      本規約の解釈には日本法を準拠法とします。本サービスに関する紛争については、東京地方裁判所を第一審の専属的合意管轄裁判所とします。
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="section">
+    <div class="section-num">CONTACT</div>
+    <div class="section-title">お問い合わせ</div>
+    <div class="section-body">本規約に関するお問い合わせは以下までご連絡ください。</div>
+    <div class="contact-box">
+      <p>
+        <strong>株式会社Uplift</strong><br>
+        <a href="https://uplift-inc.studio.site/" target="_blank" style="color:var(--accent);text-decoration:none;font-weight:700;">uplift-inc.studio.site</a>
+      </p>
+    </div>
+  </div>
+
+</div>
+
+<footer>
+  <div class="footer-logo">FORM<em>IE</em></div>
+  <div class="footer-links">
+    <a href="formie-teaser.html">ホーム</a>
+    <a href="formie-privacy.html">プライバシーポリシー</a>
+    <a href="formie-terms.html">利用規約</a>
+    <a href="https://formie-alpha.vercel.app">アプリを使う</a>
+  </div>
+  <div class="footer-copy">© 2026 株式会社Uplift. All rights reserved.</div>
+</footer>
+
+</body>
+</html>
